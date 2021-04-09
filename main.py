@@ -2,32 +2,35 @@
 Setif's people is a small application that allows to communicate with a data base
 built with pandas,PyQt5 and matplotlib
 """
+
 __version__ = '0.1'
 __author__ = 'khaled bouabdallah'
 
 
 import sys
+import json
 from text_strings import arabic
 import pandas as pd
 import datetime
+import metadata
 from functools import partial
 from PyQt5.QtCore import QAbstractTableModel,Qt
 
 
 # get access to the  resources
 import qrc_resources
-# import GUI components
+
 from PyQt5.QtGui import QIcon
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QSpinBox
-from PyQt5.QtWidgets import QMainWindow
-from PyQt5.QtWidgets import QMenu
-from PyQt5.QtWidgets import QToolBar
-from PyQt5.QtWidgets import QAction
-from PyQt5.QtWidgets import QTabWidget
-from PyQt5.QtWidgets import QStatusBar
-from PyQt5.QtWidgets import QTableView
+
+# import GUI components
 from PyQt5.QtWidgets import (
+    QToolBar,
+    QAction,
+    QTabWidget,
+    QApplication,
+    QMainWindow,
+    QMenu,
     QWidget,
     QVBoxLayout,
     QLabel,
@@ -35,19 +38,17 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QFormLayout,
     QComboBox,
-    QPushButton
+    QPushButton,
+    QTableView,
+    QStatusBar,
+    QDialog,
+    QFileDialog
 )
 
+class Window(QMainWindow):
 
-
-
-
-
-
-class EditWindow(QMainWindow):
-
-    def __init__(self,parent=None):
-        self.texts = arabic
+    def __init__(self,parent=None,text =arabic):
+        self.texts = text
         super().__init__(parent)
         self.setWindowTitle(self.texts['title'])
         self.resize(800,400)
@@ -59,7 +60,6 @@ class EditWindow(QMainWindow):
         self.set_Menu()
         self.set_toolbar()
         self._createContextMenu()
-        self.connect_actions()
         self.set_statuBar()
 
     def set_Menu(self):
@@ -143,6 +143,8 @@ class EditWindow(QMainWindow):
         self.pdf_action = QAction(self.texts['expo_pdf'], self)
         self.favorite_action = QAction(self.texts['favorite'], self)
         # Using string-based key sequences todo
+        pass
+
 
     #todo
     def _createContextMenu(self):
@@ -150,10 +152,6 @@ class EditWindow(QMainWindow):
 
         self._centralWididget.setContextMenuPolicy(Qt.ActionsContextMenu)
         # Populating the widget with actions
-        pass
-
-    #todo
-    def connect_actions(self):
         pass
 
     def set_people_widget(self):
@@ -168,7 +166,6 @@ class EditWindow(QMainWindow):
             vlayout = QVBoxLayout()
             formlayout = QFormLayout()
             options_widget.setLayout(vlayout)
-
             # building the form
             #adding first name option
             self.people_options['fname']=QLineEdit()
@@ -194,6 +191,7 @@ class EditWindow(QMainWindow):
             # adding gender option
             formlayout.addWidget(QLabel('<hr>'))
             self.people_options['gender'] = QComboBox()
+            self.people_options['gender'].currentText()
             self.people_options['gender'].addItem('غير محدد')
             self.people_options['gender'].addItem('ذكر')
             self.people_options['gender'].addItem('انثي')
@@ -205,8 +203,6 @@ class EditWindow(QMainWindow):
             self.people_options['sort'].addItem('ابجدي')
             self.people_options['sort'].addItem('العمر')
             formlayout.addRow('رتب حسب:', self.people_options['sort'])
-
-
             # add label title
             vlayout.addWidget(QLabel('<h3>خصائص </h3>'))
             # adding the form
@@ -215,16 +211,9 @@ class EditWindow(QMainWindow):
             vlayout.addWidget(QLabel('<hr>'))
             self.people_options['search'] = QPushButton('بحث')
             vlayout.addWidget(self.people_options['search'])
-
             return options_widget
-
-        # loading data from excel file
-        df = pd.read_excel(r'resources\data_frame\example_dataframe.xlsx')
-        # modeling the data
-        model = pandasModel(df)
-        # building a table view for the data
+        # building a table view
         self.people_table_view = QTableView()
-        self.people_table_view.setModel(model)
         self.people_table_view.setFixedWidth(710)
         # setting up the widget and the lyout
         widget = QWidget()
@@ -236,10 +225,7 @@ class EditWindow(QMainWindow):
         layout.addWidget(build_options_widget(self))
         return widget
 
-
-
-
-
+    #todo
     def set_families_widget(self):
         widget = QWidget()
         layout = QVBoxLayout()
@@ -247,6 +233,7 @@ class EditWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
 
+    #todo
     def set_regions_widget(self):
         widget = QWidget()
         layout = QVBoxLayout()
@@ -254,6 +241,7 @@ class EditWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
 
+    #todo
     def set_general_widget(self):
         widget = QWidget()
         layout = QVBoxLayout()
@@ -261,24 +249,131 @@ class EditWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
 
+class Model(object):
+
+    def __init__(self,path):
+        df = pd.read_excel(path)
+        df["الجنس"] = pd.Categorical(df["الجنس"])
+        self.df = df
+        self.path = path
+
+    def get_dataframe(self):
+        return self.df
+
+    def get_path(self):
+        return self.path
+
+
+    def set_dataframe(self,path):
+        self.df = pd.read_excel(path)
+
+class Controller(object):
+
+    def __init__(self,view,model):
+        dataframe = model.get_dataframe()
+        self.view = view
+        self.model = model
+        self.pandas_model = PandasModel(dataframe)
+        self.load_people()
+        self._connect()
+
+    # build people table view
+    def load_people(self):
+        self.view.people_table_view.setModel(self.pandas_model)
+
+    # search for people and build the new table view
+    def search_people(self):
+        #setting up the information
+        df = self.model.get_dataframe()
+        fname = self.view.people_options['fname'].text().strip()
+        lname = self.view.people_options['lname'].text().strip()
+        region = self.view.people_options['region'].text().strip()
+        year = self.view.people_options['year'].text().strip()
+        month = self.view.people_options['month'].text().strip()
+        day = self.view.people_options['day'].text().strip()
+        gender = self.view.people_options['gender'].currentText().strip()
+        sort = self.view.people_options['sort'].currentText().strip()
+
+
+        if fname:
+            df = df[df['الاسم']==fname]
+        elif lname:
+            df = df[df['اللقب'] == lname]
+        elif region:
+            df = df[df['المنطقة'] == region]
+        elif year:
+            pass
+        elif month:
+            pass
+        elif day:
+            pass
+
+        pandas_model = PandasModel(df)
+        self.view.people_table_view.setModel(pandas_model)
+
+    def change_file_action(self):
+
+        def showdialog():
+
+            def func(decision):
+
+                global app
+
+                if decision :
+                    print("1")
+                    d.close()
+                    app.exit(0)
+
+                else:
+                    print("0")
+                    d.close()
+
+            d = QDialog()
+            layout = QVBoxLayout()
+            d.setLayout(layout)
+            layout.addWidget(QLabel(self.view.texts['exit_message']))
+            layout2 = QHBoxLayout()
+            btn1 = QPushButton(self.view.texts['yes'])
+            btn2 = QPushButton(self.view.texts['no'])
+            layout2.addWidget(btn1)
+            layout2.addWidget(btn2)
+            layout.addLayout(layout2)
+            btn1.clicked.connect(partial(func,True))
+            btn2.clicked.connect(partial(func,False))
+            d.setWindowTitle("Dialog")
+            d.setWindowModality(Qt.ApplicationModal)
+            d.exec_()
 
 
 
 
-    #todo implemnting actions methodes
+        fname = QFileDialog.getOpenFileName(self.view, 'Open file',
+                                            'c:\\', "Image files (*.xlsx)")
+        settings = load_settings()
+        print('fname')
+        print(fname[0])
+        print('settings')
+        print(settings[1])
+        if fname[0]:
+            a_file = open("config.json", "r")
+            json_object = json.load(a_file)
+            a_file.close()
+            json_object['file'] = fname[0]
+            a_file = open("config.json", "w")
+            json.dump(json_object, a_file)
+            a_file.close()
+            showdialog()
 
 
-def main():
-    app = QApplication(sys.argv)
-    view = EditWindow()
-    view.show()
-    sys.exit(app.exec())
 
-def get_current_time():
-    x = datetime.datetime.now()
-    return x.strftime('%H : %M')
 
-class pandasModel(QAbstractTableModel):
+    # connect widgets with methodes using singnals
+    def _connect(self):
+        self.view.people_options['search'].clicked.connect(self.search_people)
+        self.view.change_dataframe_action.triggered.connect(self.change_file_action)
+        pass
+
+class PandasModel(QAbstractTableModel):
 
     def __init__(self, data):
         QAbstractTableModel.__init__(self)
@@ -300,6 +395,40 @@ class pandasModel(QAbstractTableModel):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return self._data.columns[col]
         return None
+
+def main():
+    # get setiings from config.json
+    settings = load_settings()
+    # set the application
+    global app
+    app = QApplication(sys.argv)
+    # set view - model - controller
+    view = Window(text=settings[0])
+    model = Model(settings[1])
+    controller = Controller(view,model)
+    # show the view
+    view.show()
+    # exit when app closed
+    sys.exit(app.exec())
+
+def get_current_time():
+    x = datetime.datetime.now()
+    return x.strftime('%H : %M')
+
+def load_settings():
+    with open('config.json') as json_file:
+        data = json.load(json_file)
+    if data['language']=='arabic':
+        text = arabic
+    elif data['language']=='english':
+        pass
+    elif data['language']=='frensh':
+        pass
+
+    file = data['file']
+
+    return text,file
+
 
 if __name__ == '__main__':
     main()
