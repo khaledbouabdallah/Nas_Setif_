@@ -10,6 +10,7 @@ __author__ = 'khaled bouabdallah'
 import sys
 import json
 from text_strings import arabic
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
 import pandas as pd
 import datetime
 import metadata
@@ -50,8 +51,13 @@ class Window(QMainWindow):
     def __init__(self,parent=None,text =arabic):
         self.texts = text
         super().__init__(parent)
+        self.init_Ui()
+
+
+
+    def init_Ui(self):
         self.setWindowTitle(self.texts['title'])
-        self.resize(800,400)
+        self.resize(800, 400)
         self.setWindowIcon(QIcon(':icon.png'))
         # right to left for arabic
         self.setLayoutDirection(1)
@@ -93,10 +99,12 @@ class Window(QMainWindow):
     #todo
     def set_statuBar(self):
         self.statusbar = QStatusBar()
+        self.statusbar.setLayoutDirection(0)
         self.setStatusBar(self.statusbar)
-        self.statusbar.showMessage("Ready", 3000)
-        time_text = QLabel(get_current_time())
-        self.statusbar.addPermanentWidget(time_text)
+        #self.statusbar.showMessage("Ready", 3000)
+        self.rows_count = QLabel('0')
+        self.statusbar.addPermanentWidget(self.rows_count)
+
 
     def set_toolbar(self):
 
@@ -112,8 +120,6 @@ class Window(QMainWindow):
         self.options_toolbar.setMovable(False)
         self.addToolBar(Qt.LeftToolBarArea, self.options_toolbar)
 
-
-    #todo
     def set_centralWidget(self):
         self.tabs = QTabWidget()
         self._centralWididget = self.tabs
@@ -122,7 +128,6 @@ class Window(QMainWindow):
         self.tabs.addTab(self.set_families_widget(),self.texts['families'])
         self.tabs.addTab(self.set_regions_widget(),self.texts['regions'])
         self.tabs.addTab(self.set_general_widget(),self.texts['general'])
-
 
     def set_actions(self):
         #setting language actions
@@ -144,7 +149,6 @@ class Window(QMainWindow):
         self.favorite_action = QAction(self.texts['favorite'], self)
         # Using string-based key sequences todo
         pass
-
 
     #todo
     def _createContextMenu(self):
@@ -263,7 +267,6 @@ class Model(object):
     def get_path(self):
         return self.path
 
-
     def set_dataframe(self,path):
         self.df = pd.read_excel(path)
 
@@ -279,9 +282,15 @@ class Controller(object):
 
     # build people table view
     def load_people(self):
-        self.view.people_table_view.setModel(self.pandas_model)
+        if self.pandas_model.rowCount() == 0:
+            pass
+        else:
+            self.update_rows_count(self.pandas_model.rowCount())
+            self.view.people_table_view.setModel(self.pandas_model)
+
 
     # search for people and build the new table view
+    # todo : finish all options
     def search_people(self):
         #setting up the information
         df = self.model.get_dataframe()
@@ -307,7 +316,7 @@ class Controller(object):
             pass
         elif day:
             pass
-
+        self.update_rows_count(df.shape[0])
         pandas_model = PandasModel(df)
         self.view.people_table_view.setModel(pandas_model)
 
@@ -344,25 +353,50 @@ class Controller(object):
             d.setWindowModality(Qt.ApplicationModal)
             d.exec_()
 
+        def showdialog2():
+            d = QDialog()
+            layout = QVBoxLayout()
+            layout.addWidget(QLabel('قاعدة البيانات التي اخترتها ليست مناسبة'))
+            d.setLayout(layout)
+            d.setWindowTitle("Dialog")
+            d.setWindowModality(Qt.ApplicationModal)
+            d.exec_()
+            pass
 
-
-
-        fname = QFileDialog.getOpenFileName(self.view, 'Open file',
-                                            'c:\\', "Image files (*.xlsx)")
+        fname = QFileDialog.getOpenFileName(self.view, 'اختر ملف',
+                                            'c:\\', "قاعدة البيانات (*.xlsx)")
         settings = load_settings()
         print('fname')
         print(fname[0])
         print('settings')
         print(settings[1])
+        # check if user chose a file
         if fname[0]:
-            a_file = open("config.json", "r")
-            json_object = json.load(a_file)
-            a_file.close()
-            json_object['file'] = fname[0]
-            a_file = open("config.json", "w")
-            json.dump(json_object, a_file)
-            a_file.close()
-            showdialog()
+
+            df = pd.read_excel(fname[0])
+            #todo progress bar
+
+            # check if user chose a compateble file
+            if df.columns[0] == 'رقم':
+                df["الجنس"] = pd.Categorical(df["الجنس"])
+                # updating the config.json
+                a_file = open("config.json", "r")
+                json_object = json.load(a_file)
+                a_file.close()
+                json_object['file'] = fname[0]
+                a_file = open("config.json", "w")
+                json.dump(json_object, a_file)
+                a_file.close()
+                # show confirmation dialog
+                showdialog()
+            else:
+                # show file unsupported dialog
+                showdialog2()
+
+
+    def update_rows_count(self,rows):
+        string = self.view.texts['found_message']+' ' + str(rows) + ' نتائج '
+        self.view.rows_count.setText(string)
 
 
 
@@ -395,6 +429,16 @@ class PandasModel(QAbstractTableModel):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return self._data.columns[col]
         return None
+
+class worker(QObject):
+
+    finished = pyqtSignal()
+    progress = pyqtSignal(int)
+
+    def run(self):
+        """Long-running task in 5 steps."""
+        pass
+
 
 def main():
     # get setiings from config.json
