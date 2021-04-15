@@ -8,20 +8,23 @@ __author__ = 'khaled bouabdallah'
 
 
 import sys
+import time
 import json
+
+from PyQt5.uic.properties import QtCore, QtWidgets
+
 from text_strings import arabic
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, QPropertyAnimation
 import pandas as pd
 import datetime
-import metadata
 from functools import partial
-from PyQt5.QtCore import QAbstractTableModel,Qt
+from PyQt5.QtCore import QAbstractTableModel, Qt
 
 
 # get access to the  resources
 import qrc_resources
 
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QPainter, QPixmap, QMovie
 from PyQt5.QtGui import QKeySequence
 
 # import GUI components
@@ -48,10 +51,19 @@ from PyQt5.QtWidgets import (
 
 class Window(QMainWindow):
 
-    def __init__(self,parent=None,text =arabic):
+    def __init__(self,parent=None,text= arabic):
         self.texts = text
         super().__init__(parent)
         self.init_Ui()
+
+
+    def loading(self):
+        self.wait = QLabel('ffs')
+        self.statusbar.addWidget(self.wait)
+
+    def unloading(self):
+        self.wait.close()
+
 
 
 
@@ -106,8 +118,15 @@ class Window(QMainWindow):
         self.statusbar.addPermanentWidget(self.rows_count)
 
 
-    def set_toolbar(self):
 
+
+    def waiting(self):
+        pass
+
+
+
+
+    def set_toolbar(self):
         # add the tools toolbar
         self.tools_toolbar = QToolBar()
         self.tools_toolbar.setMovable(False)
@@ -253,11 +272,26 @@ class Window(QMainWindow):
         widget.setLayout(layout)
         return widget
 
+    #todo
+    def change_to_english(self):
+        self.setLayoutDirection(0)
+    #todo
+    def change_to_arabic(self):
+        self.setLayoutDirection(1)
+    #todo
+    def change_to_frensh(self):
+        self.setLayoutDirection(0)
+
+    def loqding(self):
+        self.movie = QMovie(r'resources\loading.gif')
+        self.lab = QLabel('lmao')
+        self.lab.setMovie(self.movie)
+
 class Model(object):
 
     def __init__(self,path):
         df = pd.read_excel(path)
-        df["الجنس"] = pd.Categorical(df["الجنس"])
+        df["Sexe"] = pd.Categorical(df["Sexe"])
         self.df = df
         self.path = path
 
@@ -322,7 +356,14 @@ class Controller(object):
 
     def change_file_action(self):
 
-        def showdialog():
+        def showdialogs(n):
+            self.view.unloading()
+            if n:
+                showdialog1()
+            else:
+                showdialog2()
+
+        def showdialog1():
 
             def func(decision):
 
@@ -366,32 +407,25 @@ class Controller(object):
         fname = QFileDialog.getOpenFileName(self.view, 'اختر ملف',
                                             'c:\\', "قاعدة البيانات (*.xlsx)")
         settings = load_settings()
-        print('fname')
-        print(fname[0])
-        print('settings')
-        print(settings[1])
+
         # check if user chose a file
         if fname[0]:
+            self.thread = QThread()
+            self.worker = Worker(fname[0])
+            self.worker.moveToThread(self.thread)
 
-            df = pd.read_excel(fname[0])
-            #todo progress bar
+            self.thread.started.connect(self.worker.run)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.worker.progress.connect(showdialogs)
+            self.thread.start()
+            # updating gui
+            self.view.loading()
 
-            # check if user chose a compateble file
-            if df.columns[0] == 'رقم':
-                df["الجنس"] = pd.Categorical(df["الجنس"])
-                # updating the config.json
-                a_file = open("config.json", "r")
-                json_object = json.load(a_file)
-                a_file.close()
-                json_object['file'] = fname[0]
-                a_file = open("config.json", "w")
-                json.dump(json_object, a_file)
-                a_file.close()
-                # show confirmation dialog
-                showdialog()
-            else:
-                # show file unsupported dialog
-                showdialog2()
+            pass
+
+
 
 
     def update_rows_count(self,rows):
@@ -403,8 +437,15 @@ class Controller(object):
 
     # connect widgets with methodes using singnals
     def _connect(self):
+        # connect search people action
         self.view.people_options['search'].clicked.connect(self.search_people)
+        # connect change file action
         self.view.change_dataframe_action.triggered.connect(self.change_file_action)
+        # connect the change lanugage actions
+        self.view.change_lanugage_english_action.triggered.connect(self.view.change_to_english)
+        self.view.change_lanugage_frensh_action.triggered.connect(self.view.change_to_frensh)
+        self.view.change_lanugage_arabic_action.triggered.connect(self.view.change_to_arabic)
+        #todo connect the rest
         pass
 
 class PandasModel(QAbstractTableModel):
@@ -430,15 +471,75 @@ class PandasModel(QAbstractTableModel):
             return self._data.columns[col]
         return None
 
-class worker(QObject):
+class LoadingGif(object):
+
+    def mainUI(self, FrontWindow):
+        FrontWindow.setObjectName("FTwindow")
+        FrontWindow.resize(320, 300)
+        self.centralwidget = QtWidgets.QWidget(FrontWindow)
+        self.centralwidget.setObjectName("main-widget")
+
+        # Label Create
+        self.label = QtWidgets.QLabel(self.centralwidget)
+        self.label.setGeometry(QtCore.QRect(25, 25, 200, 200))
+        self.label.setMinimumSize(QtCore.QSize(250, 250))
+        self.label.setMaximumSize(QtCore.QSize(250, 250))
+        self.label.setObjectName("lb1")
+        FrontWindow.setCentralWidget(self.centralwidget)
+
+        # Loading the GIF
+        self.movie = QMovie(r"resources\loading.gif")
+        self.label.setMovie(self.movie)
+
+        self.startAnimation()
+
+    # Start Animation
+
+    def startAnimation(self):
+        self.movie.start()
+
+    # Stop Animation(According to need)
+    def stopAnimation(self):
+        self.movie.stop()
+
+class Worker(QObject):
+
 
     finished = pyqtSignal()
+    print('started')
     progress = pyqtSignal(int)
+    print('started 2')
+
+
+    def __init__(self,path):
+        super().__init__()
+        self.path = path
 
     def run(self):
-        """Long-running task in 5 steps."""
-        pass
+        # load data bse
+        df = pd.read_excel(self.path)
 
+        # check if user chose a compateble file
+        if df.columns[0] == 'Nom':
+            df["Sexe"] = pd.Categorical(df["Nom"])
+            # updating the config.json
+            a_file = open("config.json", "r")
+            json_object = json.load(a_file)
+            a_file.close()
+            json_object['file'] = self.path
+            a_file = open("config.json", "w")
+            json.dump(json_object, a_file)
+            a_file.close()
+            # show confirmation dialog
+            print('true')
+            self.progress.emit(1)
+
+        else:
+            # show file unsupported dialog
+            print('false')
+            self.progress.emit(0)
+        self.finished.emit()
+        print('finished')
 
 def main():
     # get setiings from config.json
