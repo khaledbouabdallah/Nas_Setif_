@@ -3,7 +3,7 @@ Setif's people is a small application that allows to communicate with a data bas
 built with pandas,PyQt5 and matplotlib
 """
 
-__version__ = '0.1'
+__version__ = '0.2beta'
 __author__ = 'khaled bouabdallah'
 
 
@@ -14,7 +14,7 @@ import json
 from PyQt5.uic.properties import QtCore, QtWidgets
 
 from text_strings import arabic
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, QPropertyAnimation
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, QPropertyAnimation, QRegExp
 import pandas as pd
 import datetime
 from functools import partial
@@ -24,7 +24,7 @@ from PyQt5.QtCore import QAbstractTableModel, Qt
 # get access to the  resources
 import qrc_resources
 
-from PyQt5.QtGui import QIcon, QPainter, QPixmap, QMovie
+from PyQt5.QtGui import QIcon, QPainter, QPixmap, QMovie, QRegExpValidator
 from PyQt5.QtGui import QKeySequence
 
 # import GUI components
@@ -63,9 +63,6 @@ class Window(QMainWindow):
 
     def unloading(self):
         self.wait.close()
-
-
-
 
     def init_Ui(self):
         self.setWindowTitle(self.texts['title'])
@@ -117,14 +114,9 @@ class Window(QMainWindow):
         self.rows_count = QLabel('0')
         self.statusbar.addPermanentWidget(self.rows_count)
 
-
-
-
+    #todo
     def waiting(self):
         pass
-
-
-
 
     def set_toolbar(self):
         # add the tools toolbar
@@ -177,6 +169,7 @@ class Window(QMainWindow):
         # Populating the widget with actions
         pass
 
+    #todo make imporvemnts
     def set_people_widget(self):
 
 
@@ -192,25 +185,31 @@ class Window(QMainWindow):
             # building the form
             #adding first name option
             self.people_options['fname']=QLineEdit()
-            formlayout.addRow('الاسم:',self.people_options['fname'])
+            formlayout.addRow(self.texts['firstname'],self.people_options['fname'])
             # adding last name option
             self.people_options['lname'] = QLineEdit()
-            formlayout.addRow('اللقب:', self.people_options['lname'])
+            formlayout.addRow(self.texts["lastname"], self.people_options['lname'])
             # adding last name option
-            self.people_options['region'] = QLineEdit()
-            formlayout.addRow('المنطقة:', self.people_options['region'])
+            self.people_options['tribe'] = QLineEdit()
+            formlayout.addRow(self.texts["tribe"], self.people_options['tribe'])
             # adding date options
             formlayout.addWidget(QLabel('<hr>'))
-            formlayout.addWidget(QLabel('تاريخ الميلاد'))
+            formlayout.addWidget(QLabel(self.texts['birth_date']))
+            # making a numbers validator
+            grammar = QRegExp("[0-9]*")
+            validator = QRegExpValidator(grammar)
             # adding year option
             self.people_options['year'] = QLineEdit()
-            formlayout.addRow('السنة:', self.people_options['year'])
+            self.people_options['year'].setValidator(validator)
+            formlayout.addRow(self.texts['year'], self.people_options['year'])
             # adding month option
             self.people_options['month'] = QLineEdit()
-            formlayout.addRow('الشهر:', self.people_options['month'])
+            self.people_options['month'].setValidator(validator)
+            formlayout.addRow(self.texts['month'], self.people_options['month'])
             # adding year option
             self.people_options['day'] = QLineEdit()
-            formlayout.addRow('اليوم:', self.people_options['day'])
+            self.people_options['day'].setValidator(validator)
+            formlayout.addRow(self.texts['day'], self.people_options['day'])
             # adding gender option
             formlayout.addWidget(QLabel('<hr>'))
             self.people_options['gender'] = QComboBox()
@@ -237,7 +236,7 @@ class Window(QMainWindow):
             return options_widget
         # building a table view
         self.people_table_view = QTableView()
-        self.people_table_view.setFixedWidth(710)
+        self.people_table_view.setFixedWidth(640)
         # setting up the widget and the lyout
         widget = QWidget()
         layout = QHBoxLayout()
@@ -287,72 +286,77 @@ class Window(QMainWindow):
         self.lab = QLabel('lmao')
         self.lab.setMovie(self.movie)
 
-class Model(object):
-
-    def __init__(self,path):
-        df = pd.read_excel(path)
-        df["Sexe"] = pd.Categorical(df["Sexe"])
-        self.df = df
-        self.path = path
-
-    def get_dataframe(self):
-        return self.df
-
-    def get_path(self):
-        return self.path
-
-    def set_dataframe(self,path):
-        self.df = pd.read_excel(path)
-
 class Controller(object):
 
-    def __init__(self,view,model):
-        dataframe = model.get_dataframe()
+    def __init__(self,view,path):
+
+        self.init_dataframe(path)
         self.view = view
-        self.model = model
-        self.pandas_model = PandasModel(dataframe)
         self.load_people()
         self._connect()
 
+    def init_dataframe(self,path):
+        self.path = path
+        df = pd.read_excel(path)
+        df["Sexe"] = pd.Categorical(df["Sexe"])
+        df["Date de naissanace"] = pd.to_datetime(df["Date de naissanace"])
+        self.dataframe = df
+
     # build people table view
     def load_people(self):
-        if self.pandas_model.rowCount() == 0:
-            pass
-        else:
-            self.update_rows_count(self.pandas_model.rowCount())
-            self.view.people_table_view.setModel(self.pandas_model)
-
+        renamed = self.rename_dataframe_columns(self.dataframe,self.view.texts['columns_names'])
+        pdmodel = PandasModelPeople(renamed)
+        self.update_rows_count(pdmodel.rowCount())
+        self.view.people_table_view.setModel(pdmodel)
 
     # search for people and build the new table view
     # todo : finish all options
     def search_people(self):
+
         #setting up the information
-        df = self.model.get_dataframe()
+        df = self.dataframe
+        print(self.dataframe.columns)
         fname = self.view.people_options['fname'].text().strip()
         lname = self.view.people_options['lname'].text().strip()
-        region = self.view.people_options['region'].text().strip()
+        tribe = self.view.people_options['tribe'].text().strip()
         year = self.view.people_options['year'].text().strip()
         month = self.view.people_options['month'].text().strip()
         day = self.view.people_options['day'].text().strip()
-        gender = self.view.people_options['gender'].currentText().strip()
-        sort = self.view.people_options['sort'].currentText().strip()
-
+        gender = self.view.people_options['gender']
+        sort = self.view.people_options['sort']
 
         if fname:
-            df = df[df['الاسم']==fname]
-        elif lname:
-            df = df[df['اللقب'] == lname]
-        elif region:
-            df = df[df['المنطقة'] == region]
-        elif year:
+            df = df[df['Prénom']==fname]
+        if lname:
+            df = df[df['Nom'] == lname]
+        if tribe:
+            df = df[df['Tribue'] == tribe]
+        if year:
+            df = df[df['Date de naissanace'].dt.year == int(year)]
+        if month:
+            df = df[df['Date de naissanace'].dt.month== int(month)]
+        if day:
+            df = df[df['Date de naissanace'].dt.day== int(day)]
+        if gender.currentIndex() == 1:
+            df = df[df['Sexe'] == 'ذ']
+        elif gender.currentIndex() == 2:
+            df = df[df['Sexe'] == 'أ']
+        #todo implement sorted feature
+        if sort.currentIndex() == 1:
             pass
-        elif month:
+        elif sort.currentIndex() == 2:
             pass
-        elif day:
-            pass
+
         self.update_rows_count(df.shape[0])
-        pandas_model = PandasModel(df)
+        renamed = self.rename_dataframe_columns(df, self.view.texts['columns_names'])
+        pandas_model = PandasModelPeople(renamed)
         self.view.people_table_view.setModel(pandas_model)
+
+
+    def rename_dataframe_columns(self,df,args):
+        columns = df.columns
+        renamed = df.rename(columns={columns[0]: args[0], columns[1]: args[1],columns[2]: args[2],columns[3]: args[3],columns[4]: args[4],columns[5]: args[5],})
+        return renamed
 
     def change_file_action(self):
 
@@ -425,15 +429,9 @@ class Controller(object):
 
             pass
 
-
-
-
     def update_rows_count(self,rows):
         string = self.view.texts['found_message']+' ' + str(rows) + ' نتائج '
         self.view.rows_count.setText(string)
-
-
-
 
     # connect widgets with methodes using singnals
     def _connect(self):
@@ -448,7 +446,7 @@ class Controller(object):
         #todo connect the rest
         pass
 
-class PandasModel(QAbstractTableModel):
+class PandasModelPeople(QAbstractTableModel):
 
     def __init__(self, data):
         QAbstractTableModel.__init__(self)
@@ -463,44 +461,18 @@ class PandasModel(QAbstractTableModel):
     def data(self, index, role=Qt.DisplayRole):
         if index.isValid():
             if role == Qt.DisplayRole:
-                return str(self._data.iloc[index.row(), index.column()])
+                if type(self._data.iloc[index.row(), index.column()]) == pd._libs.tslibs.timestamps.Timestamp:
+                    temp = self._data.iloc[index.row(), index.column()]
+                    temp = temp.strftime("%d/%m/%Y")
+                    return str(temp)
+                else:
+                    return str(self._data.iloc[index.row(), index.column()])
         return None
 
     def headerData(self, col, orientation, role):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return self._data.columns[col]
         return None
-
-class LoadingGif(object):
-
-    def mainUI(self, FrontWindow):
-        FrontWindow.setObjectName("FTwindow")
-        FrontWindow.resize(320, 300)
-        self.centralwidget = QtWidgets.QWidget(FrontWindow)
-        self.centralwidget.setObjectName("main-widget")
-
-        # Label Create
-        self.label = QtWidgets.QLabel(self.centralwidget)
-        self.label.setGeometry(QtCore.QRect(25, 25, 200, 200))
-        self.label.setMinimumSize(QtCore.QSize(250, 250))
-        self.label.setMaximumSize(QtCore.QSize(250, 250))
-        self.label.setObjectName("lb1")
-        FrontWindow.setCentralWidget(self.centralwidget)
-
-        # Loading the GIF
-        self.movie = QMovie(r"resources\loading.gif")
-        self.label.setMovie(self.movie)
-
-        self.startAnimation()
-
-    # Start Animation
-
-    def startAnimation(self):
-        self.movie.start()
-
-    # Stop Animation(According to need)
-    def stopAnimation(self):
-        self.movie.stop()
 
 class Worker(QObject):
 
@@ -547,18 +519,13 @@ def main():
     # set the application
     global app
     app = QApplication(sys.argv)
-    # set view - model - controller
+    # set view and  controller
     view = Window(text=settings[0])
-    model = Model(settings[1])
-    controller = Controller(view,model)
+    controller = Controller(view,settings[1])
     # show the view
     view.show()
     # exit when app closed
     sys.exit(app.exec())
-
-def get_current_time():
-    x = datetime.datetime.now()
-    return x.strftime('%H : %M')
 
 def load_settings():
     with open('config.json') as json_file:
@@ -573,7 +540,6 @@ def load_settings():
     file = data['file']
 
     return text,file
-
 
 if __name__ == '__main__':
     main()
