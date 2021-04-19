@@ -6,12 +6,13 @@ built with pandas,PyQt5 and matplotlib
 __version__ = '0.2beta'
 __author__ = 'khaled bouabdallah'
 
-
+import math
 import sys
 import time
 import json
 
 from PyQt5.uic.properties import QtCore, QtWidgets
+from dateutil.relativedelta import relativedelta
 
 from text_strings import arabic
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QPropertyAnimation, QRegExp
@@ -257,10 +258,50 @@ class Window(QMainWindow):
 
     #todo
     def set_regions_widget(self):
+
+        def build_options_widget(self):
+            # to store options widgets
+            self.tribe_options = {}
+            # create option widget
+            options_widget = QWidget()
+            # craete form layout and set it up
+            vlayout = QVBoxLayout()
+            formlayout = QFormLayout()
+            options_widget.setLayout(vlayout)
+            # building the form
+
+            # adding last name option
+            self.tribe_options['tribe'] = QLineEdit()
+            formlayout.addRow(self.texts["tribe"], self.tribe_options['tribe'])
+
+            # adding sorting option
+            formlayout.addWidget(QLabel('<hr>'))
+            self.tribe_options['sort'] = QComboBox()
+            self.tribe_options['sort'].addItem('لا')
+            self.tribe_options['sort'].addItem('ابجدي')
+            self.tribe_options['sort'].addItem('العمر')
+            formlayout.addRow('رتب حسب:', self.tribe_options['sort'])
+            # add label title
+            vlayout.addWidget(QLabel('<h3>خصائص </h3>'))
+            # adding the form
+            vlayout.addLayout(formlayout)
+            # adding search option
+            vlayout.addWidget(QLabel('<hr>'))
+            self.tribe_options['search'] = QPushButton('بحث')
+            vlayout.addWidget(self.tribe_options['search'])
+            return options_widget
+
+        # building a table view
+        self.tribes_table_view = QTableView()
+        self.tribes_table_view.setFixedWidth(640)
+        # setting up the widget and the lyout
         widget = QWidget()
-        layout = QVBoxLayout()
-        label = layout.addWidget(QLabel('<h1>regions</h1>'))
+        layout = QHBoxLayout()
         widget.setLayout(layout)
+        # adding the table widget
+        layout.addWidget(self.tribes_table_view)
+        # adding the options widget
+        layout.addWidget(build_options_widget(self))
         return widget
 
     #todo
@@ -291,16 +332,95 @@ class Controller(object):
     def __init__(self,view,path):
 
         self.init_dataframe(path)
+        self.init_tribes_df()
         self.view = view
         self.load_people()
+        self.load_tribes()
         self._connect()
 
     def init_dataframe(self,path):
+
+        def fix_gender(gender):
+            gender = gender.strip()
+            if gender in ['ذ','د']:
+                return 'ذكر'
+            elif gender in ['أ','ا']:
+                return 'انثى'
+            else:
+                return 'غير محدد'
+
+        # initiliasing the data base file path
         self.path = path
+        # creating a data frame for the file
         df = pd.read_excel(path)
+        # preparing the dataframe
+        # fixing the 'Sexe' values
+        df["Sexe"] = df["Sexe"].apply(fix_gender)
         df["Sexe"] = pd.Categorical(df["Sexe"])
         df["Date de naissanace"] = pd.to_datetime(df["Date de naissanace"])
+        # setting the preparted dataframe for later
         self.dataframe = df
+        # creatig the tribes dataframe
+
+    def init_tribes_df(self):
+
+        def fix_count(x):
+            if math.isnan(x):
+                return 0
+            else:
+                return x
+
+        def yearsago(years, from_date=None):
+            if from_date is None:
+                from_date = datetime.datetime.now()
+            return from_date - relativedelta(years=years)
+
+        df = self.dataframe.copy()
+        df['Age'] = [yearsago(x).year for x in df['Date de naissanace'].dt.year]
+        tribes_groups = df.groupby(['Tribue'])
+        # number of people in each tribe
+        tribe_count = df['Tribue'].value_counts()
+        tribe_count = tribe_count.rename('عدد الافراد')
+        #
+        age = df[df['Age'] < 20]
+        age_count = age.groupby(['Tribue'])["Nom"].count()
+        age_count00 = age_count.rename('اقل من 20 سنة')
+        #
+        age = df[(df['Age'] < 40) & (df['Age'] >= 20)]
+        age_count = age.groupby(['Tribue'])["Nom"].count()
+        age_count20 = age_count.rename('من 20 الى 40 سنة')
+        #
+        age = df[(df['Age'] < 60) & (df['Age'] >= 40)]
+        age_count = age.groupby(['Tribue'])["Nom"].count()
+        age_count40 = age_count.rename('من 40 الى 60 سنة')
+        #
+        age = df[(df['Age'] < 80) & (df['Age'] >= 60)]
+        age_count = age.groupby(['Tribue'])["Nom"].count()
+        age_count60 = age_count.rename('من 60 الى 80 سنة')
+        #
+        age = df[80 <= df['Age']]
+        age_count = age.groupby(['Tribue'])["Nom"].count()
+        age_count80 = age_count.rename('اكبر من 80 سنة')
+        #
+        sexe_count = df.groupby(['Tribue', 'Sexe'], as_index=False, sort=False)['Nom'].count()
+        sexe_count = sexe_count.pivot_table('Nom', ['Tribue'], 'Sexe')
+        #
+        df_tribe = pd.concat([tribe_count, sexe_count], axis='columns', sort=False)
+        #
+        df_tribe['نسبة الذكور'] = df_tribe['ذكر'] / df_tribe['عدد الافراد']
+        df_tribe['نسبة الاناث'] = df_tribe['انثى'] / df_tribe['عدد الافراد']
+        df_tribe['نسبة الذكور'] = [round(x, 2) for x in df_tribe['نسبة الذكور']]
+        df_tribe['نسبة الاناث'] = [round(x, 2) for x in df_tribe['نسبة الاناث']]
+        #
+        df_tribe = pd.concat([df_tribe, age_count00, age_count20, age_count40, age_count60, age_count80],
+                             axis='columns', sort=False)
+        #
+        df_tribe['اقل من 20 سنة'] = df_tribe['اقل من 20 سنة'].apply(fix_count)
+        df_tribe['من 20 الى 40 سنة'] = df_tribe['من 20 الى 40 سنة'].apply(fix_count)
+        df_tribe['من 40 الى 60 سنة'] = df_tribe['من 40 الى 60 سنة'].apply(fix_count)
+        df_tribe['من 60 الى 80 سنة'] = df_tribe['من 60 الى 80 سنة'].apply(fix_count)
+        df_tribe['اكبر من 80 سنة'] = df_tribe['اكبر من 80 سنة'].apply(fix_count)
+        self.tribe_dataframe = df_tribe
 
     # build people table view
     def load_people(self):
@@ -309,13 +429,17 @@ class Controller(object):
         self.update_rows_count(pdmodel.rowCount())
         self.view.people_table_view.setModel(pdmodel)
 
+    def load_tribes(self):
+        pdmodel = PandasModelPeople(self.tribe_dataframe)
+        self.view.tribes_table_view.setModel(pdmodel)
+
     # search for people and build the new table view
     # todo : finish all options
     def search_people(self):
 
-        #setting up the information
+        #gettings instance of the data frame
         df = self.dataframe
-        print(self.dataframe.columns)
+        # getting values from the user
         fname = self.view.people_options['fname'].text().strip()
         lname = self.view.people_options['lname'].text().strip()
         tribe = self.view.people_options['tribe'].text().strip()
@@ -324,7 +448,7 @@ class Controller(object):
         day = self.view.people_options['day'].text().strip()
         gender = self.view.people_options['gender']
         sort = self.view.people_options['sort']
-
+        # filtring the dataframe
         if fname:
             df = df[df['Prénom']==fname]
         if lname:
@@ -338,21 +462,26 @@ class Controller(object):
         if day:
             df = df[df['Date de naissanace'].dt.day== int(day)]
         if gender.currentIndex() == 1:
-            df = df[df['Sexe'] == 'ذ']
+            df = df[df['Sexe'] == 'ذكر']
         elif gender.currentIndex() == 2:
-            df = df[df['Sexe'] == 'أ']
+            df = df[df['Sexe'] == 'انثى']
         #todo implement sorted feature
         if sort.currentIndex() == 1:
-            pass
+            df = df.sort_values(by='Nom')
         elif sort.currentIndex() == 2:
-            pass
-
+            df = df.sort_values(by='Date de naissanace')
+        # updating the statu bar
         self.update_rows_count(df.shape[0])
+        # gettign a renamed version
         renamed = self.rename_dataframe_columns(df, self.view.texts['columns_names'])
         pandas_model = PandasModelPeople(renamed)
+        # updating the GUI
         self.view.people_table_view.setModel(pandas_model)
 
+    def edit_trabes(self):
+        pass
 
+     # return a renamed columns version of a dataframe
     def rename_dataframe_columns(self,df,args):
         columns = df.columns
         renamed = df.rename(columns={columns[0]: args[0], columns[1]: args[1],columns[2]: args[2],columns[3]: args[3],columns[4]: args[4],columns[5]: args[5],})
@@ -360,6 +489,7 @@ class Controller(object):
 
     def change_file_action(self):
 
+        #takes 1 or 0 and shows the right dialog
         def showdialogs(n):
             self.view.unloading()
             if n:
@@ -367,6 +497,8 @@ class Controller(object):
             else:
                 showdialog2()
 
+
+        # show a dialog if the file changed
         def showdialog1():
 
             def func(decision):
@@ -374,12 +506,11 @@ class Controller(object):
                 global app
 
                 if decision :
-                    print("1")
+
                     d.close()
                     app.exit(0)
 
                 else:
-                    print("0")
                     d.close()
 
             d = QDialog()
@@ -398,6 +529,7 @@ class Controller(object):
             d.setWindowModality(Qt.ApplicationModal)
             d.exec_()
 
+        # show a dialog if file didnt change
         def showdialog2():
             d = QDialog()
             layout = QVBoxLayout()
@@ -408,27 +540,29 @@ class Controller(object):
             d.exec_()
             pass
 
+        # show the file navigation interface and saving the path file chosen as str in 'fname'
         fname = QFileDialog.getOpenFileName(self.view, 'اختر ملف',
                                             'c:\\', "قاعدة البيانات (*.xlsx)")
-        settings = load_settings()
-
         # check if user chose a file
         if fname[0]:
+            # setting a worker and a thread for processing the file chosen
             self.thread = QThread()
             self.worker = Worker(fname[0])
+            # moving the worker to the therad and connecting them
             self.worker.moveToThread(self.thread)
-
             self.thread.started.connect(self.worker.run)
+            # making sure to close the thread and the worker after they finish
             self.worker.finished.connect(self.thread.quit)
             self.worker.finished.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
+            # when the worker finish processing the file show the result dialog
             self.worker.progress.connect(showdialogs)
+            # start the worker thread
             self.thread.start()
-            # updating gui
+            # start the loading animation #todo
             self.view.loading()
 
-            pass
-
+    # updating the rows count in statu bar
     def update_rows_count(self,rows):
         string = self.view.texts['found_message']+' ' + str(rows) + ' نتائج '
         self.view.rows_count.setText(string)
@@ -474,19 +608,14 @@ class PandasModelPeople(QAbstractTableModel):
             return self._data.columns[col]
         return None
 
+
+
 class Worker(QObject):
-
-
     finished = pyqtSignal()
-    print('started')
     progress = pyqtSignal(int)
-    print('started 2')
-
-
     def __init__(self,path):
         super().__init__()
         self.path = path
-
     def run(self):
         # load data bse
         df = pd.read_excel(self.path)
@@ -503,15 +632,12 @@ class Worker(QObject):
             json.dump(json_object, a_file)
             a_file.close()
             # show confirmation dialog
-            print('true')
             self.progress.emit(1)
 
         else:
             # show file unsupported dialog
-            print('false')
             self.progress.emit(0)
         self.finished.emit()
-        print('finished')
 
 def main():
     # get setiings from config.json
