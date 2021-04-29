@@ -3,7 +3,7 @@ Setif's people is a small application that allows to communicate with a data bas
 built with pandas,PyQt5 and matplotlib
 """
 
-__version__ = '0.2beta'
+__version__ = '0.3beta'
 __author__ = 'khaled bouabdallah'
 
 import matplotlib.pyplot as plt
@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib
 
 matplotlib.use('Qt5Agg')
+from family_tree import Family
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -27,12 +28,13 @@ from functools import partial
 from PyQt5.QtCore import QAbstractTableModel, Qt
 import arabic_reshaper
 from bidi.algorithm import get_display
-
+import os
+import tempfile
 # get access to the  resources
 import qrc_resources
 
-from PyQt5.QtGui import QIcon, QPainter, QPixmap, QMovie, QRegExpValidator
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QIcon, QMovie, QRegExpValidator
+
 
 # import GUI components
 from PyQt5.QtWidgets import (
@@ -82,7 +84,6 @@ class Window(QMainWindow):
         self.set_actions()
         self.set_Menu()
         self.set_toolbar()
-        self._createContextMenu()
         self.set_statuBar()
 
     def set_Menu(self):
@@ -144,8 +145,8 @@ class Window(QMainWindow):
         self._centralWididget = self.tabs
         self.setCentralWidget(self._centralWididget)
         self.tabs.addTab(self.set_people_widget(), self.texts['people'])
-
-        self.tabs.addTab(self.set_families_widget(), self.texts['families'])
+        self.tabs.addTab(self.set_families_widget(), 'العائلات')
+        self.tabs.addTab(self.set_names_widget(), 'الالقاب')
         self.tabs.addTab(self.set_regions_widget(), self.texts['regions'])
         self.tabs.addTab(self.set_general_widget(), self.texts['general'])
 
@@ -170,15 +171,6 @@ class Window(QMainWindow):
         # Using string-based key sequences todo
         pass
 
-    # todo
-    def _createContextMenu(self):
-        # Setting contextMenuPolicy
-
-        self._centralWididget.setContextMenuPolicy(Qt.ActionsContextMenu)
-        # Populating the widget with actions
-        pass
-
-    # todo make imporvemnts
     def set_people_widget(self):
         def build_options_widget(self):
             # to store options widgets
@@ -262,12 +254,64 @@ class Window(QMainWindow):
         # layout.addSpacing(300)
         return widget
 
-    # todo
     def set_families_widget(self):
+        w = QWidget()
+        self.family_widget = family_widget_ui()
+        self.family_widget.setupUi(w)
+        return w
+
+    # todo
+    def set_names_widget(self):
+        def build_options_widget(self):
+            self.family_option_widget = Tribe_tools_widget_Form()
+            w = QWidget()
+            self.family_option_widget.setupUi(w)
+            self.family_option_widget.sort_list = ['ابجدي',
+                                                   'ع الافراد',
+                                                   'ع المناطق',
+                                                   'ع الذكور',
+                                                   'ع الاناث',
+                                                   'ن الذكور',
+                                                   'ن الاناث',
+                                                   'ع 00-20 سنة',
+                                                   'ع 20-40 سنة',
+                                                   'ع 40-60 سنة',
+                                                   'ع 60-80 سنة',
+                                                   'ع +80 سنة',
+                                                   'ن 00-20 سنة',
+                                                   'ن 20-40 سنة',
+                                                   'ن 40-60 سنة',
+                                                   'ن 60-80 سنة',
+                                                   'ن +80 سنة', ]
+            self.family_option_widget.comboBox_sort_by.addItems(self.family_option_widget.sort_list)
+            self.family_option_widget.spinBox_view_few.setValue(5)
+            return w
+
+        # building a table view
+        self.familes_table_view = QTableView()
+        self.familes_table_view.setFixedWidth(900)
+        self.familes_table_view.setFixedHeight(200)
+
+        # building matplotlib canvas
+        self.family_canvas = MplCanvas(self, width=5, height=4, dpi=100)
+        self.toolbar = NavigationToolbar(self.family_canvas, self)
+
+        # setting up the widget and the lyout
         widget = QWidget()
-        layout = QVBoxLayout()
-        label = layout.addWidget(QLabel('<h1>families</h1>'))
+        layout = QHBoxLayout()
+        self.vlayout_family = QVBoxLayout()
         widget.setLayout(layout)
+        # adding the table widget
+        layout.addLayout(self.vlayout_family)
+        layout.addWidget(QVSeperationLine())
+
+        self.vlayout_family.addWidget(self.familes_table_view)
+        # adding the canvas widget and its tool bar
+        self.vlayout_family.addWidget(self.family_canvas)
+        self.vlayout_family.addWidget(self.toolbar)
+
+        # adding the options widget
+        layout.addWidget(build_options_widget(self))
         return widget
 
     # todo
@@ -356,11 +400,17 @@ class Controller(object):
 
         self.init_dataframe(path)
         self.init_tribes_df()
+        self.init_families_df()
         self.view = view
         self.load_people()
         self.load_tribes()
+        self.load_familes()
         self.init_tribe_ui()
+        self.init_family_ui()
+        self.update_family_widget()
+        self.search_family()
         self.load_matplotlib_tribe_fig()
+        self.load_matplotlib_family_fig()
         self._connect()
 
     def init_tribe_ui(self):
@@ -377,6 +427,22 @@ class Controller(object):
         self.view.tribe_option_widget.spinBox.setValue(5)
         self.view.tribe_option_widget.comboBox_chart.addItems(charts_types)
         self.view.tribe_option_widget.comboBox_find_tribe.addItems(tribues)
+
+    def init_family_ui(self):
+        columns = list(self.family_dataframe.columns)
+        columns = [str(x) for x in columns]
+        tribues = self.dataframe['Nom'].unique()
+        charts_types = ['رسم بياني شريطي', 'رسم بياني عمودي', 'رسم بياني خطي', 'رسم بياني دائري']
+
+        self.view.family_option_widget.comboBox.addItems(columns)
+        self.view.family_option_widget.comboBox_2.addItems(columns)
+        self.view.family_option_widget.comboBox_2.setCurrentText(columns[1])
+        self.view.family_option_widget.checkBox.setChecked(True)
+        self.view.family_option_widget.spinBox.setEnabled(True)
+        self.view.family_option_widget.spinBox.setValue(5)
+        self.view.family_option_widget.comboBox_chart.addItems(charts_types)
+        self.view.family_option_widget.comboBox_find_tribe.addItems(tribues)
+        self.view.family_option_widget.cb2.setText('ع المناطق')
 
     def init_dataframe(self, path):
 
@@ -413,6 +479,13 @@ class Controller(object):
         # striping the strings 'nom' and 'prenom'
         df['Nom'] = [x.strip() for x in df["Nom"]]
         df['Prénom'] = [x.strip() for x in df["Prénom"]]
+
+        def yearsago(years, from_date=None):
+            if from_date is None:
+                from_date = datetime.datetime.now()
+            return from_date - relativedelta(years=years)
+
+        df['Age'] = [yearsago(x).year for x in df['Date de naissanace'].dt.year]
         # setting the preparted dataframe for later
         self.dataframe = df
         # creatig the tribes dataframe
@@ -551,6 +624,142 @@ class Controller(object):
 
         self.tribe_dataframe = df_tribe
 
+    def init_families_df(self):
+
+        def fix_count(x):
+            if math.isnan(x):
+                return 0
+            else:
+                return x
+
+        def yearsago(years, from_date=None):
+            if from_date is None:
+                from_date = datetime.datetime.now()
+            return from_date - relativedelta(years=years)
+
+        df = self.dataframe.copy()
+        df['Age'] = [yearsago(x).year for x in df['Date de naissanace'].dt.year]
+        count_by = 'Prénom'
+        group_by = 'Nom'
+        familes_groups = df.groupby([group_by])
+
+        ## number of  people in each tribe
+
+        tribe_count = df[group_by].value_counts()
+        tribe_count = tribe_count.rename('ع الافراد')
+
+        ### number of regions in each family
+
+        tribe_family_count = familes_groups['Tribue'].nunique()
+        tribe_family_count = tribe_family_count.rename('ع المناطق')
+
+        ## number of people 0-20 years old in each group
+
+        age = df[df['Age'] < 20]
+        age_count = age.groupby([group_by])[count_by].count()
+        age_count00 = age_count.rename('ع 00-20 سنة')
+
+        ## number of people 20-40 years old in each group
+
+        age = df[(df['Age'] < 40) & (df['Age'] >= 20)]
+        age_count = age.groupby([group_by])[count_by].count()
+        age_count20 = age_count.rename('ع 20-40 سنة')
+
+        ## number of people 40-60 years old in each group
+
+        age = df[(df['Age'] < 60) & (df['Age'] >= 40)]
+        age_count = age.groupby([group_by])[count_by].count()
+        age_count40 = age_count.rename('ع 40-60 سنة')
+
+        ## number of people 60-80 years old in each group
+
+        age = df[(df['Age'] < 80) & (df['Age'] >= 60)]
+        age_count = age.groupby([group_by])[count_by].count()
+        age_count60 = age_count.rename('ع 60-80 سنة')
+
+        ## number of people +80 years old in each group
+
+        age = df[80 <= df['Age']]
+        age_count = age.groupby([group_by])[count_by].count()
+        age_count80 = age_count.rename('ع +80 سنة')
+
+        ## median age
+        median_age = df.groupby(group_by)['Age'].median()
+        median_age.rename('متوسط العمر', inplace=True)
+
+        ## count females and males (another way)
+
+        sexe_count = df.groupby([group_by, 'Sexe'], as_index=False, sort=False)[count_by].count()
+        sexe_count = sexe_count.pivot_table(count_by, [group_by], 'Sexe')
+        sexe_count.rename(columns={'ذكر': 'ع الذكور', 'انثى': 'ع الاناث'}, inplace=True)
+
+        ## Concatinating the series
+
+        df_family = pd.concat(
+            [tribe_count, tribe_family_count, sexe_count, age_count00, age_count20, age_count40, age_count60,
+             age_count80, median_age], axis='columns', sort=False)
+
+        ## Sexe percentege by each group
+
+        df_family['ن الذكور'] = df_family['ع الذكور'] / df_family['ع الافراد']
+        df_family['ن الاناث'] = df_family['ع الاناث'] / df_family['ع الافراد']
+        df_family['ن الذكور'] = [round(x, 2) for x in df_family['ن الذكور']]
+        df_family['ن الاناث'] = [round(x, 2) for x in df_family['ن الاناث']]
+
+        ## adding age columns
+
+        ## cleaning age columns
+
+        df_family['ع 00-20 سنة'] = df_family['ع 00-20 سنة'].apply(fix_count)
+        df_family['ع 20-40 سنة'] = df_family['ع 20-40 سنة'].apply(fix_count)
+        df_family['ع 40-60 سنة'] = df_family['ع 40-60 سنة'].apply(fix_count)
+        df_family['ع 60-80 سنة'] = df_family['ع 60-80 سنة'].apply(fix_count)
+        df_family['ع +80 سنة'] = df_family['ع +80 سنة'].apply(fix_count)
+
+        ### adding percentage age columns
+
+        df_family['ن 00-20 سنة'] = df_family['ع 00-20 سنة'] / df_family['ع الافراد']
+        df_family['ن 20-40 سنة'] = df_family['ع 20-40 سنة'] / df_family['ع الافراد']
+        df_family['ن 40-60 سنة'] = df_family['ع 40-60 سنة'] / df_family['ع الافراد']
+        df_family['ن 60-80 سنة'] = df_family['ع 60-80 سنة'] / df_family['ع الافراد']
+        df_family['ن +80 سنة'] = df_family['ع +80 سنة'] / df_family['ع الافراد']
+
+        df_family['ن 00-20 سنة'] = [round(x, 2) for x in df_family['ن 00-20 سنة']]
+        df_family['ن 20-40 سنة'] = [round(x, 2) for x in df_family['ن 20-40 سنة']]
+        df_family['ن 40-60 سنة'] = [round(x, 2) for x in df_family['ن 40-60 سنة']]
+        df_family['ن 60-80 سنة'] = [round(x, 2) for x in df_family['ن 60-80 سنة']]
+        df_family['ن +80 سنة'] = [round(x, 2) for x in df_family['ن +80 سنة']]
+
+        ### adding index as a column
+
+        df_family['اللقب'] = df_family.index
+
+        ### fixing columns order
+
+        col = ['اللقب',
+               'ع الافراد',
+               'ع المناطق',
+               'ع الذكور',
+               'ع الاناث',
+               'ن الذكور',
+               'ن الاناث',
+               'ع 00-20 سنة',
+               'ع 20-40 سنة',
+               'ع 40-60 سنة',
+               'ع 60-80 سنة',
+               'ع +80 سنة',
+               'ن 00-20 سنة',
+               'ن 20-40 سنة',
+               'ن 40-60 سنة',
+               'ن 60-80 سنة',
+               'ن +80 سنة',
+               'متوسط العمر',
+               ]
+
+        df_family = df_family[col]
+
+        self.family_dataframe = df_family
+
     # build people table view
     def load_people(self):
         renamed = self.rename_dataframe_columns(self.dataframe, self.view.texts['columns_names'])
@@ -666,7 +875,239 @@ class Controller(object):
         else:
             self.view.tribes_table_view.setColumnHidden(17, True)
 
-    # search for people and build the new table view
+    def load_familes(self):
+        # getting ressources ready
+        df = self.family_dataframe.copy()
+        sort_value = self.view.family_option_widget.comboBox_sort_by.currentText()
+        if sort_value == 'ابجدي':
+            sort_value = 'اللقب'
+        sort_settings = bool(self.view.family_option_widget.radioButton_up.isChecked())
+        first_only = bool(self.view.family_option_widget.cb_view_few.isChecked())
+        how_mutch = self.view.family_option_widget.spinBox_view_few.value()
+        cb1 = self.view.family_option_widget.cb1.isChecked()
+        cb2 = self.view.family_option_widget.cb2.isChecked()
+        cb3 = self.view.family_option_widget.cb3.isChecked()
+        cb4 = self.view.family_option_widget.cb4.isChecked()
+        cb5 = self.view.family_option_widget.cb5.isChecked()
+        cb6 = self.view.family_option_widget.cb6.isChecked()
+        cb7 = self.view.family_option_widget.cb7.isChecked()
+        cb8 = self.view.family_option_widget.cb8.isChecked()
+        cb9 = self.view.family_option_widget.cb9.isChecked()
+        cb10 = self.view.family_option_widget.cb10.isChecked()
+        cb11 = self.view.family_option_widget.cb11.isChecked()
+        cb12 = self.view.family_option_widget.cb12.isChecked()
+        cb13 = self.view.family_option_widget.cb13.isChecked()
+        cb14 = self.view.family_option_widget.cb14.isChecked()
+        cb15 = self.view.family_option_widget.cb15.isChecked()
+        cb16 = self.view.family_option_widget.cb16.isChecked()
+        cb17 = self.view.family_option_widget.cb17.isChecked()
+
+        # sorting the df
+        df = df.sort_values(by=sort_value, ascending=sort_settings)
+
+        # getting only first results
+        if first_only:
+            df = df.head(how_mutch)
+
+        pdmodel = PandasModelTribes(df)
+
+        # drawing the tribes table
+        self.view.familes_table_view.setModel(pdmodel)
+        # showing only columns that we want
+        if cb1:
+            self.view.familes_table_view.setColumnHidden(1, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(1, True)
+        if cb2:
+            self.view.familes_table_view.setColumnHidden(2, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(2, True)
+        if cb3:
+            self.view.familes_table_view.setColumnHidden(3, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(3, True)
+        if cb4:
+            self.view.familes_table_view.setColumnHidden(4, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(4, True)
+        if cb5:
+            self.view.familes_table_view.setColumnHidden(5, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(5, True)
+        if cb6:
+            self.view.familes_table_view.setColumnHidden(6, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(6, True)
+        if cb7:
+            self.view.familes_table_view.setColumnHidden(7, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(7, True)
+        if cb8:
+            self.view.familes_table_view.setColumnHidden(12, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(12, True)
+        if cb9:
+            self.view.familes_table_view.setColumnHidden(8, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(8, True)
+        if cb10:
+            self.view.familes_table_view.setColumnHidden(13, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(13, True)
+        if cb11:
+            self.view.familes_table_view.setColumnHidden(9, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(9, True)
+        if cb12:
+            self.view.familes_table_view.setColumnHidden(14, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(14, True)
+        if cb13:
+            self.view.familes_table_view.setColumnHidden(10, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(10, True)
+        if cb14:
+            self.view.familes_table_view.setColumnHidden(15, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(15, True)
+        if cb15:
+            self.view.familes_table_view.setColumnHidden(11, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(11, True)
+        if cb16:
+            self.view.familes_table_view.setColumnHidden(16, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(16, True)
+        if cb17:
+            self.view.familes_table_view.setColumnHidden(17, False)
+        else:
+            self.view.familes_table_view.setColumnHidden(17, True)
+
+    def search_family(self):
+        family_selected = self.view.family_widget.comboBox.currentText()
+        region_selected = self.view.family_widget.comboBox_2.currentText()
+        famlies = self.dataframe['Nom'].unique()
+        df = self.dataframe[self.dataframe['Nom'] == family_selected]
+        regions = df['Tribue'].unique()
+        if family_selected not in famlies or region_selected not in regions:
+            print('region or family wrong !')
+        else:
+            self.load_family(family_selected,region_selected)
+
+    def update_family_widget(self):
+        famlies = self.dataframe['Nom'].unique()
+        famlies = list(famlies)
+        famlies.sort()
+        self.view.family_widget.comboBox.addItems(famlies)
+        family = self.view.family_widget.comboBox.currentText()
+        df = self.dataframe[self.dataframe['Nom'] == family]
+        regions = df['Tribue'].unique()
+        regions = list(regions)
+        regions.sort()
+        self.view.family_widget.comboBox_2.addItems(regions)
+        header = self.view.family_widget.tableView.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+
+    def load_family(self,family,region):
+
+        def make_pies(self,sexe_list,age_list):
+
+            fig = self.view.family_widget.widget.axes
+            fig.set_aspect('auto')
+            fig.clear()
+            fig.cla()
+
+            fig1 = self.view.family_widget.widget_2.axes
+            fig1.set_aspect('auto')
+            fig1.clear()
+            fig1.cla()
+
+
+            sexe_labels = [get_display(arabic_reshaper.reshape('ذكور')),
+                           get_display(arabic_reshaper.reshape('اناث'))]
+
+            df_1 = pd.DataFrame(list(zip(sexe_labels, sexe_list)),
+                                columns=['name', 'val'])
+            df_1 = df_1[df_1['val'] != 0]
+
+            self.view.family_widget.widget.axes.pie(df_1['val'], labels=df_1['name'], autopct='%1.1f%%')
+
+
+
+            age_labels = [get_display(arabic_reshaper.reshape('20-00')),
+                          get_display(arabic_reshaper.reshape('40-20')),
+                          get_display(arabic_reshaper.reshape('60-40')),
+                          get_display(arabic_reshaper.reshape('80-60')),
+                          get_display(arabic_reshaper.reshape('80+')),
+                          ]
+            df = pd.DataFrame(list(zip(age_labels, age_list)),
+                              columns=['name', 'val'])
+            df = df[df['val'] != 0]
+            self.view.family_widget.widget_2.axes.pie(df['val'], labels=df['name'], autopct='%1.1f%%')
+
+            self.view.family_widget.widget.fig.tight_layout()
+            self.view.family_widget.widget.draw()
+
+            self.view.family_widget.widget_2.fig.tight_layout()
+            self.view.family_widget.widget_2.draw()
+
+        family_df = self.dataframe.copy()
+        family_df = family_df[family_df['Nom']==family]
+        family_df = family_df[family_df['Tribue']==region]
+        self.view.family_widget.label_4.setText('<h2>'+family+'--'+region+'</h2>')
+
+        people_count = family_df.shape[0]
+        male_count = family_df[family_df['Sexe'] == 'ذكر'].shape[0]
+        female_count = family_df[family_df['Sexe'] == 'انثى'].shape[0]
+        age_median = family_df['Age'].median()
+        age00 = family_df[(family_df['Age'] < 20) & (family_df['Age'] >= 0)].shape[0]
+        age20 = family_df[(family_df['Age'] < 40) & (family_df['Age'] >= 20)].shape[0]
+        age40 = family_df[(family_df['Age'] < 60) & (family_df['Age'] >= 40)].shape[0]
+        age60 = family_df[(family_df['Age'] < 80) & (family_df['Age'] >= 60)].shape[0]
+        age80 = family_df[family_df['Age'] >= 80].shape[0]
+
+        self.view.family_widget.label_8.setText(str(people_count))
+        self.view.family_widget.label_5.setText(str(age_median))
+        self.view.family_widget.label_13.setText(str(male_count))
+        self.view.family_widget.label_11.setText(str(female_count))
+        self.view.family_widget.label_15.setText(str(age00))
+        self.view.family_widget.label_17.setText(str(age20))
+        self.view.family_widget.label_25.setText(str(age40))
+        self.view.family_widget.label_18.setText(str(age60))
+        self.view.family_widget.label_24.setText(str(age80))
+
+        renamed = self.rename_dataframe_columns(family_df, self.view.texts['columns_names'])
+        pdmodel = PandasModelPeople(renamed)
+        self.view.family_widget.tableView.setModel(pdmodel)
+
+        df_for_family = family_df.copy()
+        df_for_family['Date de naissanace'] = df_for_family['Date de naissanace'].dt.year
+        self.family_dicto =  df_for_family.to_dict(orient='index')
+
+        make_pies(self,[male_count,female_count],[age00,age20,age40,age60,age80])
+
+    def generate_tree(self):
+
+
+
+        myfamily = Family()
+        myfamily.members.clear()
+
+        myfamily.populate(self.family_dicto.values())
+        print(len(myfamily.members))
+        myfamily.sort_family(True)
+
+        for member in myfamily.members:
+            myfamily.find_father(member)
+        myfamily.sort_family(True)
+        for member in myfamily.members:
+            myfamily.find_father(member)
+        print(len(myfamily.members))
+
+
+        tree = myfamily.build_tree()
+        tree.view(tempfile.mktemp('.gv'))
+
     def search_people(self):
 
         # gettings instance of the data frame
@@ -789,8 +1230,92 @@ class Controller(object):
             fig.set_ylabel(ylbl)
             plot()
 
+
+
         self.view.tribe_canvas.fig.tight_layout()
         self.view.tribe_canvas.draw()
+
+    def load_matplotlib_family_fig(self):
+        def barh():
+            fig.barh(axe_x, axe_y)
+
+        def bar():
+            fig.bar(axe_x, axe_y, )
+
+        def plot():
+            fig.plot(axe_x, axe_y)
+
+        def pie():
+
+            df = self.family_dataframe
+            # if few option is yes
+            if select_few:
+                df = df.sort_values(by=select_x, ascending=False)
+                big = df.head(how_many)
+                big = big[select_x]
+                small = df[~df.index.isin(big.index)]
+                small_sums = pd.Series([small[select_x].sum()], index=["اخرى"])
+                big = big.append(small_sums)
+                ax_tribe = big.index
+                ax_tribe = list([get_display(arabic_reshaper.reshape(x)) for x in ax_tribe])
+                fig.pie(big, labels=ax_tribe, autopct='%1.1f%%')
+            else:
+                axe_x = df[select_x]
+                ax_tribe = df.index
+                ax_tribe = list([get_display(arabic_reshaper.reshape(x)) for x in ax_tribe])
+                fig.pie(axe_x, labels=ax_tribe, autopct='%1.1f%%')
+
+        # removing old figure
+        fig = self.view.family_canvas.axes
+        fig.set_aspect('auto')
+        fig.clear()
+        fig.cla()
+        plt.setp(fig.xaxis.get_majorticklabels(), rotation=45)
+        # getting dataframe copy
+        df = self.family_dataframe.copy()
+        # getting user inputs
+        select_x = self.view.family_option_widget.comboBox.currentText()
+        select_chart = self.view.family_option_widget.comboBox_chart.currentText()
+        select_few = bool(self.view.family_option_widget.checkBox.isChecked())
+        how_many = self.view.family_option_widget.spinBox.value()
+        select_y = self.view.family_option_widget.comboBox_2.currentText()
+        if select_chart != 'رسم بياني دائري':
+            # if few option is yes
+            if select_few:
+                df = df.sort_values(by=[select_y], ascending=False).head(how_many)
+
+        # preparing axis and there lists
+        axe_x = df[select_x]
+        if select_x == 'اللقب':
+            axe_x = list([get_display(arabic_reshaper.reshape(x)) for x in axe_x])
+        axe_y = df[select_y]
+        if select_y == 'اللقب':
+            axe_y = list([get_display(arabic_reshaper.reshape(x)) for x in axe_y])
+
+        title = get_display(arabic_reshaper.reshape(select_chart))
+        xlbl = get_display(arabic_reshaper.reshape(select_x))
+        ylbl = get_display(arabic_reshaper.reshape(select_y))
+        fig.set_title(title)
+
+        # drawing the figure
+        if select_chart == 'رسم بياني شريطي':
+            fig.set_xlabel(ylbl)
+            fig.set_ylabel(xlbl)
+            barh()
+        elif select_chart == 'رسم بياني دائري':
+            fig.set_xlabel(xlbl)
+            pie()
+        elif select_chart == 'رسم بياني عمودي':
+            fig.set_xlabel(xlbl)
+            fig.set_ylabel(ylbl)
+            bar()
+        elif select_chart == 'رسم بياني خطي':
+            fig.set_xlabel(xlbl)
+            fig.set_ylabel(ylbl)
+            plot()
+
+        self.view.family_canvas.fig.tight_layout()
+        self.view.family_canvas.draw()
 
     # return a renamed columns version of a dataframe
     def rename_dataframe_columns(self, df, args):
@@ -888,13 +1413,24 @@ class Controller(object):
         self.view.change_lanugage_english_action.triggered.connect(self.view.change_to_english)
         self.view.change_lanugage_frensh_action.triggered.connect(self.view.change_to_frensh)
         self.view.change_lanugage_arabic_action.triggered.connect(self.view.change_to_arabic)
-        # connect cb_view_few with its function
+        # connect the region view widgets
         self.view.tribe_option_widget.cb_view_few.stateChanged.connect(self.change_button_state)
         self.view.tribe_option_widget.pushButton_refresh.clicked.connect(self.load_tribes)
         self.view.tribe_option_widget.checkBox.stateChanged.connect(self.change_button_state2)
         self.view.tribe_option_widget.pushButton_chart.clicked.connect(self.load_matplotlib_tribe_fig)
         self.view.tribe_option_widget.comboBox_chart.activated.connect(self.change_chart_state)
         self.view.tribe_option_widget.pushButton_find_tribe.clicked.connect(self.show_region_widget)
+        # connect the family view widgets
+        self.view.family_option_widget.cb_view_few.stateChanged.connect(self.change_button_state_family)
+        self.view.family_option_widget.pushButton_refresh.clicked.connect(self.load_familes)
+        self.view.family_option_widget.checkBox.stateChanged.connect(self.change_button_state2_family)
+        self.view.family_option_widget.pushButton_chart.clicked.connect( self.load_matplotlib_family_fig)
+        self.view.family_option_widget.comboBox_chart.activated.connect(self.change_chart_state_family)
+        self.view.family_option_widget.pushButton_find_tribe.clicked.connect(self.show_family_widget)
+
+        self.view.family_widget.comboBox.currentIndexChanged.connect(self.change_family_combobox)
+        self.view.family_widget.pushButton.clicked.connect(self.search_family)
+        self.view.family_widget.pushButton_2.clicked.connect(self.generate_tree)
         pass
 
     # tribe table many checkbox activated
@@ -939,6 +1475,65 @@ class Controller(object):
             self.window.show()
         else:
             print("selected region not found")
+            
+    def show_family_widget(self):
+        family_selected = self.view.family_option_widget.comboBox_find_tribe.currentText()
+        families = self.dataframe['Nom'].unique()
+        if family_selected in families:
+            self.window = specific_family_widget(family=family_selected, dataframe=self.dataframe,
+                                                 family_dataframe=self.family_dataframe)
+            self.window.show()
+        else:
+            print("selected family not found")
+
+    # family table many checkbox activated
+    def change_button_state_family(self):
+                if self.view.family_option_widget.cb_view_few.isChecked():
+                    self.view.family_option_widget.spinBox_view_few.setEnabled(True)
+                else:
+                    self.view.family_option_widget.spinBox_view_few.setEnabled(False)
+
+    # family chart many checkbox activeted
+    def change_button_state2_family(self):
+                if self.view.family_option_widget.checkBox.isChecked():
+                    self.view.family_option_widget.spinBox.setEnabled(True)
+                else:
+                    self.view.family_option_widget.spinBox.setEnabled(False)
+
+    # family chart combobox activated
+
+    def change_chart_state_family(self):
+                columns = list(self.family_dataframe.columns)
+
+                self.view.family_option_widget.comboBox.clear()
+                value = self.view.family_option_widget.comboBox_chart.currentText()
+                if value == 'رسم بياني دائري':
+                    columns.remove('اللقب')
+                    columns.remove('ن 00-20 سنة')
+                    columns.remove('ن 20-40 سنة')
+                    columns.remove('ن 40-60 سنة')
+                    columns.remove('ن 60-80 سنة')
+                    columns.remove('ن +80 سنة')
+                    self.view.family_option_widget.comboBox.addItems(columns)
+                    self.view.family_option_widget.comboBox_2.setEnabled(False)
+                else:
+                    self.view.family_option_widget.comboBox.addItems(columns)
+                    self.view.family_option_widget.comboBox_2.setEnabled(True)
+
+    def change_family_combobox(self):
+        familys = self.dataframe['Nom'].unique()
+        family = self.view.family_widget.comboBox.currentText()
+        self.view.family_widget.comboBox_2.clear()
+        if family in familys:
+            self.view.family_widget.comboBox_2.setEnabled(True)
+            df = self.dataframe[self.dataframe['Nom'] == family]
+            regions = df['Tribue'].unique()
+            regions = list(regions)
+            regions.sort()
+            self.view.family_widget.comboBox_2.addItems(regions)
+        else:
+            self.view.family_widget.comboBox_2.setEnabled(False)
+
 
 
 class PandasModelPeople(QAbstractTableModel):
@@ -1437,7 +2032,6 @@ class Tribe_tools_widget_Form(object):
         self.label_5.setText(_translate("Form", "المنطقة:"))
         self.pushButton_find_tribe.setText(_translate("Form", "بحث"))
 
-
 class Ui_Form(object):
     def setupUi(self, Form):
         Form.setObjectName("Form")
@@ -1483,7 +2077,6 @@ class Ui_Form(object):
         self.tableView.setMaximumSize(QtCore.QSize(16777215, 150))
         self.tableView.setObjectName("tableView")
         self.verticalLayout_3.addWidget(self.tableView)
-        # todo
         self.widget = MplCanvas(self, width=5, height=4, dpi=100)
         self.toolbar = NavigationToolbar(self.widget, Form)
         self.widget.setObjectName("widget")
@@ -1901,7 +2494,6 @@ class Ui_Form(object):
         self.label_23.setText(_translate("Form", "TextLabel"))
         self.label_24.setText(_translate("Form", "TextLabel"))
 
-
 class specific_region_widget(QWidget):
 
     def __init__(self, parent=None, region=None, dataframe=None, region_dataframe=None):
@@ -2306,6 +2898,614 @@ class specific_region_widget(QWidget):
                           columns=['name', 'val'])
         df = df[df['val'] != 0]
         self.ui.age_widget.axes.pie(df['val'], labels=df['name'], autopct='%1.1f%%')
+        
+class specific_family_widget(QWidget):
+
+    def __init__(self, parent=None, family=None, dataframe=None, family_dataframe=None):
+
+        super().__init__(parent=parent)
+        # getting region name
+        self.family_name = family
+        # getting the specific region df
+        family_groupby = dataframe.groupby(['Nom'])
+        self.dataframe = family_groupby.get_group(self.family_name)
+        # getting region general info
+        self.info = family_dataframe[family_dataframe['اللقب'] == self.family_name]
+        # getting the families dataframe
+        self.init_df()
+        # updating the gui
+        self.init_ui()
+        # connecting signals
+        self.connect()
+        self.load_families()
+        self.load_matplotlib_fig()
+
+    def init_df(self):
+        x = self.dataframe.copy()
+        ### people count
+        people_count = x['Tribue'].value_counts()
+        people_count.rename('ع الافراد', inplace=True)
+        ### Families sexe count
+        sexe_count = x.groupby(['Tribue', 'Sexe'], as_index=False, sort=False)['Prénom'].count()
+        sexe_count = pd.pivot_table(sexe_count, index=['Tribue'],
+                                    columns=['Sexe'], aggfunc=np.sum)
+        sexe_count.rename(columns={'ذكر': 'ع الذكور', 'انثى': 'ع الاناث'}, inplace=True)
+        sexe_count.columns = sexe_count.columns.droplevel()
+
+        ## adding age
+        def yearsago(years, from_date=None):
+            if from_date is None:
+                from_date = datetime.datetime.now()
+            return from_date - relativedelta(years=years)
+
+        df = self.dataframe.copy()
+        df['Age'] = [yearsago(x).year for x in df['Date de naissanace'].dt.year]
+        ## number of people 0-20 years old in each group
+        age = df[df['Age'] < 20]
+        age_count = age.groupby(['Tribue'])["Prénom"].count()
+        age_count00 = age_count.rename('ع 00-20 سنة')
+        ## number of people 20-40 years old in each group
+        age = df[(df['Age'] < 40) & (df['Age'] >= 20)]
+        age_count = age.groupby(['Tribue'])["Prénom"].count()
+        age_count20 = age_count.rename('ع 20-40 سنة')
+        ## number of people 40-60 years old in each group
+        age = df[(df['Age'] < 60) & (df['Age'] >= 40)]
+        age_count = age.groupby(['Tribue'])["Prénom"].count()
+        age_count40 = age_count.rename('ع 40-60 سنة')
+        ## number of people 60-80 years old in each group
+        age = df[(df['Age'] < 80) & (df['Age'] >= 60)]
+        age_count = age.groupby(['Tribue'])["Prénom"].count()
+        age_count60 = age_count.rename('ع 60-80 سنة')
+        ## number of people +80 years old in each group
+        age = df[80 <= df['Age']]
+        age_count = age.groupby(['Tribue'])["Prénom"].count()
+        age_count80 = age_count.rename('ع +80 سنة')
+        ## median age
+        median_age = df.groupby('Tribue')['Age'].median()
+        median_age.rename('متوسط العمر', inplace=True)
+        ##Concatinating
+        family_df = pd.concat([people_count, sexe_count, age_count00, age_count20,
+                               age_count40, age_count60, age_count80, median_age], axis='columns', sort=False)
+        ## sexe percentage
+        family_df['ن الذكور'] = family_df['ع الذكور'] / family_df['ع الافراد']
+        family_df['ن الاناث'] = family_df['ع الاناث'] / family_df['ع الافراد']
+        family_df['ن الذكور'] = [round(x, 2) for x in family_df['ن الذكور']]
+        family_df['ن الاناث'] = [round(x, 2) for x in family_df['ن الاناث']]
+
+        ## fix age counts
+        def fix_count(x):
+            if math.isnan(x):
+                return 0
+            else:
+                return x
+
+        family_df['ع 00-20 سنة'] = family_df['ع 00-20 سنة'].apply(fix_count)
+        family_df['ع 20-40 سنة'] = family_df['ع 20-40 سنة'].apply(fix_count)
+        family_df['ع 40-60 سنة'] = family_df['ع 40-60 سنة'].apply(fix_count)
+        family_df['ع 60-80 سنة'] = family_df['ع 60-80 سنة'].apply(fix_count)
+        family_df['ع +80 سنة'] = family_df['ع +80 سنة'].apply(fix_count)
+        ## age percentages
+        family_df['ن 00-20 سنة'] = family_df['ع 00-20 سنة'] / family_df['ع الافراد']
+        family_df['ن 20-40 سنة'] = family_df['ع 20-40 سنة'] / family_df['ع الافراد']
+        family_df['ن 40-60 سنة'] = family_df['ع 40-60 سنة'] / family_df['ع الافراد']
+        family_df['ن 60-80 سنة'] = family_df['ع 60-80 سنة'] / family_df['ع الافراد']
+        family_df['ن +80 سنة'] = family_df['ع +80 سنة'] / family_df['ع الافراد']
+        family_df['ن 00-20 سنة'] = [round(x, 2) for x in family_df['ن 00-20 سنة']]
+        family_df['ن 20-40 سنة'] = [round(x, 2) for x in family_df['ن 20-40 سنة']]
+        family_df['ن 40-60 سنة'] = [round(x, 2) for x in family_df['ن 40-60 سنة']]
+        family_df['ن 60-80 سنة'] = [round(x, 2) for x in family_df['ن 60-80 سنة']]
+        family_df['ن +80 سنة'] = [round(x, 2) for x in family_df['ن +80 سنة']]
+        ### adding index as a column
+        family_df['المنطقة'] = family_df.index
+        ### fixing columns order
+        col = ['المنطقة',
+               'ع الافراد',
+               'ع الذكور',
+               'ع الاناث',
+               'ن الذكور',
+               'ن الاناث',
+               'ع 00-20 سنة',
+               'ع 20-40 سنة',
+               'ع 40-60 سنة',
+               'ع 60-80 سنة',
+               'ع +80 سنة',
+               'ن 00-20 سنة',
+               'ن 20-40 سنة',
+               'ن 40-60 سنة',
+               'ن 60-80 سنة',
+               'ن +80 سنة',
+               'متوسط العمر', ]
+        self.family_df = family_df[col]
+
+    def connect(self):
+        # self.view.tribe_option_widget.cb_view_few.stateChanged.connect(self.change_button_state)
+        self.ui.pushButton.clicked.connect(self.load_families)
+        self.ui.checkBox_17.stateChanged.connect(
+            partial(self.many_checkboxTriggred, self.ui.checkBox_17, self.ui.spinBox))
+        self.ui.checkBox_18.stateChanged.connect(
+            partial(self.many_checkboxTriggred, self.ui.checkBox_18, self.ui.spinBox_2))
+        self.ui.comboBox_2.activated.connect(self.change_chart_state)
+        self.ui.pushButton_2.clicked.connect(self.load_matplotlib_fig)
+
+    def load_matplotlib_fig(self):
+        def barh():
+            fig.barh(axe_x, axe_y)
+
+        def scatter():
+            fig.scatter(axe_x, axe_y, )
+
+        def bar():
+            fig.bar(axe_x, axe_y, )
+
+        def plot():
+            fig.plot(axe_x, axe_y)
+
+        def pie():
+
+            df = self.family_df
+            # if few option is yes
+            if select_few:
+                df = df.sort_values(by=select_x, ascending=False)
+                big = df.head(how_many)
+                big = big[select_x]
+                small = df[~df.index.isin(big.index)]
+                small_sums = pd.Series([small[select_x].sum()], index=["اخرى"])
+                big = big.append(small_sums)
+                ax_tribe = big.index
+                ax_tribe = list([get_display(arabic_reshaper.reshape(x)) for x in ax_tribe])
+                fig.pie(big, labels=ax_tribe, autopct='%1.1f%%')
+            else:
+                axe_x = df[select_x]
+                ax_tribe = df.index
+                ax_tribe = list([get_display(arabic_reshaper.reshape(x)) for x in ax_tribe])
+                fig.pie(axe_x, labels=ax_tribe, autopct='%1.1f%%')
+
+        # removing old figure
+
+        fig = self.ui.widget.axes
+        fig.set_aspect('auto')
+        fig.clear()
+        fig.cla()
+        plt.setp(fig.xaxis.get_majorticklabels(), rotation=45)
+        # getting dataframe copy
+        df = self.family_df.copy()
+        # getting user inputs
+        select_x = self.ui.comboBox_3.currentText()
+        select_chart = self.ui.comboBox_2.currentText()
+        select_few = bool(self.ui.checkBox_18.isChecked())
+        how_many = self.ui.spinBox_2.value()
+        select_y = self.ui.comboBox_4.currentText()
+        if select_chart != 'رسم بياني دائري':
+            # if few option is yes
+            if select_few:
+                df = df.sort_values(by=[select_y], ascending=False).head(how_many)
+
+        # preparing axis and there lists
+        axe_x = df[select_x]
+        if select_x == 'المنطقة':
+            axe_x = list([get_display(arabic_reshaper.reshape(x)) for x in axe_x])
+        axe_y = df[select_y]
+        if select_y == 'المنطقة':
+            axe_y = list([get_display(arabic_reshaper.reshape(x)) for x in axe_y])
+
+        title = get_display(arabic_reshaper.reshape(select_chart))
+        xlbl = get_display(arabic_reshaper.reshape(select_x))
+        ylbl = get_display(arabic_reshaper.reshape(select_y))
+        fig.set_title(title)
+        # drawing the figure
+        if select_chart == 'رسم بياني شريطي':
+            fig.set_xlabel(ylbl)
+            fig.set_ylabel(xlbl)
+            barh()
+        elif select_chart == 'رسم بياني دائري':
+            fig.set_xlabel(xlbl)
+            pie()
+        elif select_chart == 'رسم بياني عمودي':
+            fig.set_xlabel(xlbl)
+            fig.set_ylabel(ylbl)
+            bar()
+        elif select_chart == 'رسم بياني خطي':
+            fig.set_xlabel(xlbl)
+            fig.set_ylabel(ylbl)
+            plot()
+        elif select_chart == 'رسم بياني لنقاط المبعثرة':
+            fig.set_xlabel(xlbl)
+            fig.set_ylabel(ylbl)
+            scatter()
+
+        self.ui.widget.fig.tight_layout()
+        self.ui.widget.draw()
+
+    def load_families(self):
+        # getting ressources ready
+        df = self.family_df.copy()
+        sort_value = self.ui.comboBox.currentText()
+        if sort_value == 'ابجدي':
+            sort_value = 'المنطقة'
+        sort_settings = bool(self.ui.radioButton_2.isChecked())
+        first_only = bool(self.ui.checkBox_17.isChecked())
+        how_mutch = self.ui.spinBox.value()
+        cb1 = self.ui.cb1.isChecked()
+        cb2 = self.ui.cb2.isChecked()
+        cb3 = self.ui.cb3.isChecked()
+        cb4 = self.ui.cb4.isChecked()
+        cb5 = self.ui.cb5.isChecked()
+        cb6 = self.ui.cb6.isChecked()
+        cb7 = self.ui.cb7.isChecked()
+        cb8 = self.ui.cb8.isChecked()
+        cb9 = self.ui.cb9.isChecked()
+        cb10 = self.ui.cb10.isChecked()
+        cb11 = self.ui.cb11.isChecked()
+        cb12 = self.ui.cb12.isChecked()
+        cb13 = self.ui.cb13.isChecked()
+        cb14 = self.ui.cb14.isChecked()
+        cb15 = self.ui.cb15.isChecked()
+        cb16 = self.ui.cb16.isChecked()
+        # sorting the df
+        df = df.sort_values(by=sort_value, ascending=sort_settings)
+        # getting only first results
+        if first_only:
+            df = df.head(how_mutch)
+        # buildig the table model
+        pdmodel = PandasModelTribes(df)
+        # drawing the tribes table
+        self.ui.tableView.setModel(pdmodel)
+        # showing only columns that we want
+        if cb1:
+            self.ui.tableView.setColumnHidden(1, False)
+        else:
+            self.ui.tableView.setColumnHidden(1, True)
+        if cb2:
+            self.ui.tableView.setColumnHidden(16, False)
+        else:
+            self.ui.tableView.setColumnHidden(16, True)
+        if cb3:
+            self.ui.tableView.setColumnHidden(2, False)
+        else:
+            self.ui.tableView.setColumnHidden(2, True)
+        if cb4:
+            self.ui.tableView.setColumnHidden(3, False)
+        else:
+            self.ui.tableView.setColumnHidden(3, True)
+        if cb5:
+            self.ui.tableView.setColumnHidden(4, False)
+        else:
+            self.ui.tableView.setColumnHidden(4, True)
+        if cb6:
+            self.ui.tableView.setColumnHidden(5, False)
+        else:
+            self.ui.tableView.setColumnHidden(5, True)
+        if cb7:
+            self.ui.tableView.setColumnHidden(6, False)
+        else:
+            self.ui.tableView.setColumnHidden(6, True)
+        if cb8:
+            self.ui.tableView.setColumnHidden(7, False)
+        else:
+            self.ui.tableView.setColumnHidden(7, True)
+        if cb9:
+            self.ui.tableView.setColumnHidden(8, False)
+        else:
+            self.ui.tableView.setColumnHidden(8, True)
+        if cb10:
+            self.ui.tableView.setColumnHidden(9, False)
+        else:
+            self.ui.tableView.setColumnHidden(9, True)
+        if cb11:
+            self.ui.tableView.setColumnHidden(10, False)
+        else:
+            self.ui.tableView.setColumnHidden(10, True)
+        if cb12:
+            self.ui.tableView.setColumnHidden(11, False)
+        else:
+            self.ui.tableView.setColumnHidden(11, True)
+        if cb13:
+            self.ui.tableView.setColumnHidden(12, False)
+        else:
+            self.ui.tableView.setColumnHidden(12, True)
+        if cb14:
+            self.ui.tableView.setColumnHidden(13, False)
+        else:
+            self.ui.tableView.setColumnHidden(13, True)
+        if cb15:
+            self.ui.tableView.setColumnHidden(14, False)
+        else:
+            self.ui.tableView.setColumnHidden(14, True)
+        if cb16:
+            self.ui.tableView.setColumnHidden(15, False)
+        else:
+            self.ui.tableView.setColumnHidden(15, True)
+
+    def many_checkboxTriggred(self, checkBox, spinBox):
+        if checkBox.isChecked():
+            spinBox.setEnabled(True)
+        else:
+            spinBox.setEnabled(False)
+
+    def change_chart_state(self):
+        columns = list(self.family_df)
+        self.ui.comboBox_3.clear()
+        value = self.ui.comboBox_2.currentText()
+        if value == 'رسم بياني دائري':
+            columns.remove('المنطقة')
+            columns.remove('ن 00-20 سنة')
+            columns.remove('ن 20-40 سنة')
+            columns.remove('ن 40-60 سنة')
+            columns.remove('ن 60-80 سنة')
+            columns.remove('ن +80 سنة')
+            self.ui.comboBox_3.addItems(columns)
+            self.ui.comboBox_4.setEnabled(False)
+        else:
+            self.ui.comboBox_3.addItems(columns)
+            self.ui.comboBox_4.setEnabled(True)
+
+    def init_ui(self):
+        columns = self.family_df.columns
+        charts_types = ['رسم بياني شريطي', 'رسم بياني عمودي', 'رسم بياني خطي', 'رسم بياني دائري']
+
+        # initlisazing the ui
+        self.ui = Ui_Form()
+        self.ui.setupUi(self)
+        # updating
+        self.setWindowTitle(self.family_name)
+        self.ui.tableView.setMinimumHeight(200)
+        # setting the region info
+        self.ui.label.setText('<h1>' + self.family_name + '<\\h1>')
+        self.ui.label_13.setText(str(self.info['ع الذكور'][0]))
+        self.ui.label_17.setText(str(self.info['ع الاناث'][0]))
+        self.ui.label_5.setText(str(self.info['ع الافراد'][0]))
+        self.ui.label_7.setText(str(self.info['ع المناطق'][0]))
+        self.ui.label_14.setText(str(int(self.info['ع 00-20 سنة'][0])))
+        self.ui.label_16.setText(str(int(self.info['ع 20-40 سنة'][0])))
+        self.ui.label_21.setText(str(int(self.info['ع 40-60 سنة'][0])))
+        self.ui.label_22.setText(str(int(self.info['ع 60-80 سنة'][0])))
+        self.ui.label_23.setText(str(int(self.info['ع +80 سنة'][0])))
+        self.ui.label_24.setText(str(int(self.info['متوسط العمر'][0])))
+        # initlizaing the widgets
+        self.ui.comboBox.addItems(columns)
+        self.ui.comboBox_3.addItems(columns)
+        self.ui.comboBox_4.addItems(columns)
+        self.ui.comboBox_2.addItems(charts_types)
+        self.ui.comboBox_4.setCurrentText(columns[1])
+        self.ui.checkBox_18.setChecked(True)
+        self.ui.spinBox_2.setEnabled(True)
+        self.ui.spinBox_2.setValue(5)
+        # setting the pies
+        self.build_pies()
+
+    def build_pies(self):
+        sexe_list = [self.info['ع الذكور'][0], self.info['ع الاناث'][0]]
+        sexe_labels = [get_display(arabic_reshaper.reshape('ذكور')),
+                  get_display(arabic_reshaper.reshape('اناث'))]
+
+        df_1 = pd.DataFrame(list(zip(sexe_labels, sexe_list)),
+                          columns=['name', 'val'])
+        df_1 = df_1[df_1['val'] != 0]
+
+        self.ui.sexe_widget.axes.pie(df_1['val'], labels=df_1['name'], autopct='%1.1f%%')
+
+
+
+        age_list = [self.info['ع 00-20 سنة'][0],
+                    self.info['ع 20-40 سنة'][0],
+                    self.info['ع 40-60 سنة'][0],
+                    self.info['ع 60-80 سنة'][0],
+                    self.info['ع +80 سنة'][0]
+                    ]
+        age_labels = [get_display(arabic_reshaper.reshape('20-00')),
+                      get_display(arabic_reshaper.reshape('40-20')),
+                      get_display(arabic_reshaper.reshape('60-40')),
+                      get_display(arabic_reshaper.reshape('80-60')),
+                      get_display(arabic_reshaper.reshape('80+')),
+                      ]
+        df = pd.DataFrame(list(zip(age_labels, age_list)),
+                          columns=['name', 'val'])
+        df = df[df['val'] != 0]
+        self.ui.age_widget.axes.pie(df['val'], labels=df['name'], autopct='%1.1f%%')
+
+class family_widget_ui(object):
+    def setupUi(self, Form):
+        Form.setObjectName("Form")
+        Form.resize(967, 665)
+        Form.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self.horizontalLayout = QtWidgets.QHBoxLayout(Form)
+        self.horizontalLayout.setObjectName("horizontalLayout")
+        self.verticalLayout = QtWidgets.QVBoxLayout()
+        self.verticalLayout.setObjectName("verticalLayout")
+        self.label_4 = QtWidgets.QLabel(Form)
+        self.label_4.setAlignment(QtCore.Qt.AlignCenter)
+        self.label_4.setObjectName("label_4")
+        self.verticalLayout.addWidget(self.label_4)
+        self.tableView = QtWidgets.QTableView(Form)
+        self.tableView.setMaximumSize(QtCore.QSize(16777215, 200))
+        self.tableView.setObjectName("tableView")
+        self.verticalLayout.addWidget(self.tableView)
+        spacerItem = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem)
+        self.gridLayout = QtWidgets.QGridLayout()
+        self.gridLayout.setObjectName("gridLayout")
+        self.label_14 = QtWidgets.QLabel(Form)
+        self.label_14.setObjectName("label_14")
+        self.gridLayout.addWidget(self.label_14, 2, 0, 1, 1)
+        self.label_13 = QtWidgets.QLabel(Form)
+        self.label_13.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_13.setObjectName("label_13")
+        self.gridLayout.addWidget(self.label_13, 1, 1, 1, 1)
+        self.label_15 = QtWidgets.QLabel(Form)
+        self.label_15.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_15.setObjectName("label_15")
+        self.gridLayout.addWidget(self.label_15, 2, 1, 1, 1)
+        self.label_16 = QtWidgets.QLabel(Form)
+        self.label_16.setObjectName("label_16")
+        self.gridLayout.addWidget(self.label_16, 2, 2, 1, 1)
+        self.label_7 = QtWidgets.QLabel(Form)
+        self.label_7.setObjectName("label_7")
+        self.gridLayout.addWidget(self.label_7, 0, 2, 1, 1)
+        self.label_8 = QtWidgets.QLabel(Form)
+        self.label_8.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_8.setObjectName("label_8")
+        self.gridLayout.addWidget(self.label_8, 0, 1, 1, 1)
+        self.label_5 = QtWidgets.QLabel(Form)
+        self.label_5.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_5.setObjectName("label_5")
+        self.gridLayout.addWidget(self.label_5, 0, 3, 1, 1)
+        self.label_9 = QtWidgets.QLabel(Form)
+        self.label_9.setObjectName("label_9")
+        self.gridLayout.addWidget(self.label_9, 0, 0, 1, 1)
+        self.label_18 = QtWidgets.QLabel(Form)
+        self.label_18.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_18.setObjectName("label_18")
+        self.gridLayout.addWidget(self.label_18, 3, 3, 1, 1)
+        self.label_17 = QtWidgets.QLabel(Form)
+        self.label_17.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_17.setObjectName("label_17")
+        self.gridLayout.addWidget(self.label_17, 2, 3, 1, 1)
+        self.label_10 = QtWidgets.QLabel(Form)
+        self.label_10.setObjectName("label_10")
+        self.gridLayout.addWidget(self.label_10, 1, 0, 1, 1)
+        self.label_11 = QtWidgets.QLabel(Form)
+        self.label_11.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_11.setObjectName("label_11")
+        self.gridLayout.addWidget(self.label_11, 1, 3, 1, 1)
+        self.label_12 = QtWidgets.QLabel(Form)
+        self.label_12.setObjectName("label_12")
+        self.gridLayout.addWidget(self.label_12, 1, 2, 1, 1)
+        self.label_20 = QtWidgets.QLabel(Form)
+        self.label_20.setObjectName("label_20")
+        self.gridLayout.addWidget(self.label_20, 3, 0, 1, 1)
+        self.label_21 = QtWidgets.QLabel(Form)
+        self.label_21.setObjectName("label_21")
+        self.gridLayout.addWidget(self.label_21, 3, 2, 1, 1)
+        self.label_22 = QtWidgets.QLabel(Form)
+        self.label_22.setObjectName("label_22")
+        self.gridLayout.addWidget(self.label_22, 4, 0, 1, 1)
+        self.label_24 = QtWidgets.QLabel(Form)
+        self.label_24.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_24.setObjectName("label_24")
+        self.gridLayout.addWidget(self.label_24, 4, 1, 1, 1)
+        self.label_25 = QtWidgets.QLabel(Form)
+        self.label_25.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_25.setObjectName("label_25")
+        self.gridLayout.addWidget(self.label_25, 3, 1, 1, 1)
+        self.verticalLayout.addLayout(self.gridLayout)
+        spacerItem1 = QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem1)
+        self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
+        self.horizontalLayout_2.setObjectName("horizontalLayout_2")
+        self.widget = MplCanvas(self, width=2, height=2, dpi=100)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.widget.sizePolicy().hasHeightForWidth())
+        self.widget.setSizePolicy(sizePolicy)
+        self.widget.setMinimumSize(QtCore.QSize(200, 200))
+        self.widget.setObjectName("widget")
+        self.horizontalLayout_2.addWidget(self.widget)
+        self.widget_2 = MplCanvas(self, width=2, height=2, dpi=100)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.widget_2.sizePolicy().hasHeightForWidth())
+        self.widget_2.setSizePolicy(sizePolicy)
+        self.widget_2.setMinimumSize(QtCore.QSize(200, 200))
+        self.widget_2.setObjectName("widget_2")
+        self.horizontalLayout_2.addWidget(self.widget_2)
+        self.verticalLayout.addLayout(self.horizontalLayout_2)
+        spacerItem2 = QtWidgets.QSpacerItem(20, 5, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem2)
+        self.pushButton_2 = QtWidgets.QPushButton(Form)
+        self.pushButton_2.setObjectName("pushButton_2")
+        self.verticalLayout.addWidget(self.pushButton_2)
+        spacerItem3 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
+        self.verticalLayout.addItem(spacerItem3)
+        self.horizontalLayout.addLayout(self.verticalLayout)
+        self.line = QtWidgets.QFrame(Form)
+        self.line.setFrameShape(QtWidgets.QFrame.VLine)
+        self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.line.setObjectName("line")
+        self.horizontalLayout.addWidget(self.line)
+        self.verticalLayout_2 = QtWidgets.QVBoxLayout()
+        self.verticalLayout_2.setContentsMargins(-1, -1, 10, -1)
+        self.verticalLayout_2.setObjectName("verticalLayout_2")
+        spacerItem4 = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        self.verticalLayout_2.addItem(spacerItem4)
+        self.label = QtWidgets.QLabel(Form)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
+        self.label.setSizePolicy(sizePolicy)
+        self.label.setAlignment(QtCore.Qt.AlignLeading|QtCore.Qt.AlignLeft|QtCore.Qt.AlignVCenter)
+        self.label.setObjectName("label")
+        self.verticalLayout_2.addWidget(self.label)
+        spacerItem5 = QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        self.verticalLayout_2.addItem(spacerItem5)
+        self.formLayout = QtWidgets.QFormLayout()
+        self.formLayout.setObjectName("formLayout")
+        self.label_2 = QtWidgets.QLabel(Form)
+        self.label_2.setObjectName("label_2")
+        self.formLayout.setWidget(0, QtWidgets.QFormLayout.LabelRole, self.label_2)
+        self.comboBox = ExtendedComboBox(Form)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.comboBox.sizePolicy().hasHeightForWidth())
+        self.comboBox.setSizePolicy(sizePolicy)
+        self.comboBox.setObjectName("comboBox")
+        self.formLayout.setWidget(0, QtWidgets.QFormLayout.FieldRole, self.comboBox)
+        self.label_3 = QtWidgets.QLabel(Form)
+        self.label_3.setObjectName("label_3")
+        self.formLayout.setWidget(1, QtWidgets.QFormLayout.LabelRole, self.label_3)
+        self.comboBox_2 = ExtendedComboBox(Form)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.comboBox_2.sizePolicy().hasHeightForWidth())
+        self.comboBox_2.setSizePolicy(sizePolicy)
+        self.comboBox_2.setObjectName("comboBox_2")
+        self.formLayout.setWidget(1, QtWidgets.QFormLayout.FieldRole, self.comboBox_2)
+        self.verticalLayout_2.addLayout(self.formLayout)
+        spacerItem6 = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        self.verticalLayout_2.addItem(spacerItem6)
+        self.pushButton = QtWidgets.QPushButton(Form)
+        self.pushButton.setObjectName("pushButton")
+        self.verticalLayout_2.addWidget(self.pushButton)
+        spacerItem7 = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+        self.verticalLayout_2.addItem(spacerItem7)
+        spacerItem8 = QtWidgets.QSpacerItem(200, 20, QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Minimum)
+        self.verticalLayout_2.addItem(spacerItem8)
+        self.horizontalLayout.addLayout(self.verticalLayout_2)
+
+        self.retranslateUi(Form)
+        QtCore.QMetaObject.connectSlotsByName(Form)
+
+    def retranslateUi(self, Form):
+        _translate = QtCore.QCoreApplication.translate
+        Form.setWindowTitle(_translate("Form", "Form"))
+        self.label_4.setText(_translate("Form", "<html><head/><body><p><span style=\" font-size:14pt;\">بوعبدالله-سطيف</span></p></body></html>"))
+        self.label_14.setText(_translate("Form", "20-00  سنة:"))
+        self.label_13.setText(_translate("Form", "10"))
+        self.label_15.setText(_translate("Form", "10"))
+        self.label_16.setText(_translate("Form", "40-20  سنة:"))
+        self.label_7.setText(_translate("Form", "متوسط العمر:"))
+        self.label_8.setText(_translate("Form", "12"))
+        self.label_5.setText(_translate("Form", "45"))
+        self.label_9.setText(_translate("Form", "عدد الافراد:"))
+        self.label_18.setText(_translate("Form", "10"))
+        self.label_17.setText(_translate("Form", "10"))
+        self.label_10.setText(_translate("Form", "عدد الذكور:"))
+        self.label_11.setText(_translate("Form", "10"))
+        self.label_12.setText(_translate("Form", "عدد الاناث"))
+        self.label_20.setText(_translate("Form", "60-40  سنة:"))
+        self.label_21.setText(_translate("Form", "80-60  سنة:"))
+        self.label_22.setText(_translate("Form", "80+  سنة:"))
+        self.label_24.setText(_translate("Form", "10"))
+        self.label_25.setText(_translate("Form", "10"))
+        self.pushButton_2.setText(_translate("Form", "شجرة العائلة"))
+        self.label.setText(_translate("Form", "ابحث عن العائلة:"))
+        self.label_2.setText(_translate("Form", "اللقب"))
+        self.label_3.setText(_translate("Form", "القبيلة"))
+        self.pushButton.setText(_translate("Form", "بحث"))
 
 
 if __name__ == '__main__':
