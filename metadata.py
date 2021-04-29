@@ -1,117 +1,118 @@
-from graphviz import Digraph
-class Person(object):
-
-    def __init__(self, values,index):
-        self.first_name = values['Prénom']
-        self.last_name = values['Nom']
-        self.birth_date = values['Date de naissanace']
-        self.father_name = values['Prénon père']
-        self.gender = values['Sexe']
-        self.index = str(index)
-        self.father = None
-
-    def set_father(self,father):
-        self.father = father
-
-    def get_fathers_names(self):
-        fathers = str(self.father_name).strip()
-        fathers = fathers.split("بن")
-        fathers = [x.strip() for x in fathers]
-        return fathers
+from PyQt5.QtCore import QPropertyAnimation,Qt,QTimer
+from PyQt5.QtGui import QPainter, QPixmap,QMovie
+from PyQt5.QtWidgets import QWidget, QApplication, QLabel, QHBoxLayout, QVBoxLayout
+import sys
+from PyQt5.uic.properties import QtCore
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 
 
+class loading_screen(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(200,200)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint,Qt.CustomizeWindowHint)
 
-class Family(object):
-    members = []
-    count = 0
+        self.label_animation = QLabel(self)
 
-    def populate(self, rows):
-        for row in rows:
-            person = Person(row, self.count)
-            self.count += 1
-            self.members.append(person)
-
-    def build_tree(self):
-        dot = Digraph(comment='Family Tree',
-                      node_attr={'style': 'filled'})
-        for person in self.members:
-            if person.gender == 'انثى':
-                dot.node(person.index, person.first_name + r'\n' + str(person.birth_date.year), color='#ffadef')
-            else:
-                dot.node(person.index, person.first_name + r'\n' + str(person.birth_date.year), color='lightblue2')
-
-        for i in range(len(self.members) - 1):
-            j = self.members[i].index
-            k = self.members[i + 1].index
-            dot.edge(j, k)
-
-        return dot
-
-    def sort_family(self, reverse):
-        def myFunc(e):
-            return e.birth_date
-
-        sorted = self.members
-        return sorted.sort(key=myFunc, reverse=reverse)
-
-    def find_father(self, member):
-        if member.father == None and member.father != '':
-            father = None
-            for person in self.members:
-                if self.is_the_same(member, person):
-                    continue
-                else:
-                    if member.birth_date <= person.birth_date:
-                        continue
-                    else:
-                        if member.father_name != person.first_name:
-                            continue
-                        else:
-                            father = person
-                            break
-
-            if father == None:
-                father == self.find_father_from_self(member)
-            member.set_father(father)
-
-    def find_father_from_self(self,member):
-
-        fathers_names = member.get_fathers_names()
-        father_name = fathers_names.pop(0)
-        new_fathers_names = " بن ".join(fathers_names)
-        father_info = {'Nom': member.last_name,
-                       'Prénom': father_name,
-                       'Date de naissanace': member.birth_date.year - 20,
-                       'Prénon père': new_fathers_names,
-                       'Sexe': 'ذكر', }
-
-        father = Person(father_info,index=self.count)
-        self.count +=1
-        self.members.append(father)
-        member.set_father(father)
-
-        if(fathers_names):
-            self.find_father_from_self(father)
+        self.movie =QMovie('loading.gif')
+        self.label_animation.setMovie(self.movie)
+        timer = QTimer(self)
+        self.start_animation()
+        timer.singleShot(3000,self.stop_animation)
 
 
-    def is_the_same(self, member1, member2):
-        if member1.first_name == member2.first_name \
-                and member1.birth_date == member2.birth_date \
-                and member1.father_name == member2.father_name:
-            return True
-        else:
-            return False
+    def start_animation(self):
+        print('hello')
+        self.movie.start()
+
+    def stop_animation(self):
+        print('bey')
+        self.movie.stop()
+        self.close()
+
+
+
+class starting_screen(QWidget):
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self.setFixedSize(400,400)
+        self.loading_screen = loading_screen()
+        layout = QVBoxLayout()
+        layout.addWidget(self.loading_screen)
+        self.setLayout(layout)
+
+
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    widget = starting_screen()
+    widget.show()
+    app.exit(app.exec_())
 
 
 
 
 
 
+class starting_screen_ui(object):
+    def setupUi(self, Form):
+        Form.setObjectName("Form")
+        Form.resize(450, 450)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(Form.sizePolicy().hasHeightForWidth())
+        Form.setSizePolicy(sizePolicy)
+        Form.setMinimumSize(QtCore.QSize(450, 450))
+        Form.setMaximumSize(QtCore.QSize(450, 450))
+        self.verticalLayout = QtWidgets.QVBoxLayout(Form)
+        self.verticalLayout.setObjectName("verticalLayout")
+        self.frame = QtWidgets.QFrame(Form)
+        self.frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.frame.setFrameShadow(QtWidgets.QFrame.Raised)
+        self.frame.setObjectName("frame")
+        self.search_file_button = QtWidgets.QPushButton(self.frame)
+        self.search_file_button.setGeometry(QtCore.QRect(150, 60, 141, 61))
+        self.search_file_button.setStyleSheet("background-color: #2ecc71;\n"
+        "border-style: outset;\n"
+        "border-radius: 15px;\n"
+        "border-color: black;\n"
+        "padding: 4px;\n"
+        "color:white;\n"
+        "\n"
+        "\n"
+        "\n"
+        "")
+        self.search_file_button.setCheckable(False)
+        self.search_file_button.setAutoRepeat(False)
+        self.search_file_button.setFlat(False)
+        self.search_file_button.setObjectName("search_file_button")
+        self.loading_widget = QtWidgets.QWidget(self.frame)
+        self.loading_widget.setGeometry(QtCore.QRect(120, 140, 200, 200))
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.loading_widget.sizePolicy().hasHeightForWidth())
+        self.loading_widget.setSizePolicy(sizePolicy)
+        self.loading_widget.setMinimumSize(QtCore.QSize(200, 200))
+        self.loading_widget.setMaximumSize(QtCore.QSize(200, 200))
+        self.loading_widget.setObjectName("loading_widget")
+        self.label = QtWidgets.QLabel(self.frame)
+        self.label.setGeometry(QtCore.QRect(170, 350, 101, 20))
+        self.label.setAlignment(QtCore.Qt.AlignCenter)
+        self.label.setObjectName("label")
+        self.verticalLayout.addWidget(self.frame)
 
+        self.retranslateUi(Form)
+        QtCore.QMetaObject.connectSlotsByName(Form)
 
-
-
+    def retranslateUi(self, Form):
+        _translate = QtCore.QCoreApplication.translate
+        Form.setWindowTitle(_translate("Form", "Form"))
+        self.search_file_button.setText(_translate("Form", "اختر ملف"))
+        self.label.setText(_translate("Form", "جاري التحميل"))
 
 
 
